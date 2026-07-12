@@ -1,0 +1,13 @@
+# Prefer apt where available (matches Raspberry Pi OS's picamera2 packaging):
+#   sudo apt update
+#   sudo apt install -y python3-picamera2 python3-opencv python3-numpy python3-pymavlink
+#
+# If python3-pymavlink isn't available on your OS image, install via pip
+# (Bookworm requires --break-system-packages for system Python, or use a
+# venv created with --system-site-packages so picamera2 stays importable):
+#   pip install --break-system-packages pymavlink pyserial
+
+pymavlink
+pyserial
+opencv-python
+numpy
