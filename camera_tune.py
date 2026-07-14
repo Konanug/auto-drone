@@ -41,12 +41,18 @@ HOW TO USE IT (the whole point):
   4. The exposure where detect% stays high and jitter stays low is your answer.
 
 INTERPRETING IT:
-  - jitter drops sharply as exposure shortens  -> your problem is MOTION BLUR,
+  - jitter is only trustworthy when detect% is high. It is computed from three
+    CONSECUTIVE detected frames, so a low detection rate reports "n/a", not a
+    number. Read the jitter for the settings that also detect well.
+  - jitter drops sharply as exposure shortens  -> your problem was MOTION BLUR,
     and a short shutter fixes it. Good news.
-  - jitter stays high even at 1-2 ms           -> the blur is gone but the tag
-    is still moving between rows: that is ROLLING SHUTTER SHEAR, which no
-    exposure setting can fix. You need mechanical damping, or a global-shutter
-    camera (Raspberry Pi GS Camera / IMX296).
+  - jitter stays high (sub-px is good; >1-2 px is not) even at 1-2 ms -> the
+    blur is gone but the tag is still moving between sensor rows: ROLLING
+    SHUTTER SHEAR, which no exposure setting fixes. You need mechanical damping
+    or a global-shutter camera (Raspberry Pi GS Camera / IMX296).
+  - detect% is low but jitter (when it reports) is sub-pixel -> the tag is being
+    LOST from frame, not smeared. That is a framing/pointing problem the
+    autonomous controller addresses, not a camera-tuning one.
 
 Browser (live mode): http://<pi-ip>:<port>/stream
 Ctrl+C to stop.
@@ -83,38 +89,46 @@ class _Settings:
 def corner_jitter(corner_history):
     """HIGH-FREQUENCY corner jitter in px, with slow drift removed.
 
-    This must not be a plain std-dev of corner positions. A hovering drone with
-    no GPS and no optical flow DRIFTS — it cannot hold station — and that drift
-    slides the tag across the image. A naive std-dev would report the drift as
-    "jitter" and completely swamp the thing we actually want to measure.
+    corner_history is one entry PER FRAME: the 4x2 corners if the tag was
+    detected that frame, or None if it was not. Preserving the misses is
+    essential — see below.
 
-    Vibration is HIGH frequency (65-100 Hz, aliased by the 30 fps camera into
-    random frame-to-frame scatter). Drift is LOW frequency (smooth across many
-    frames). So we take the SECOND DIFFERENCE in time:
+    This is not a plain std-dev of corner positions. A hovering drone with no
+    GPS DRIFTS, sliding the tag across the image; a naive std-dev would report
+    that drift as "jitter". Vibration is HIGH frequency (65-100 Hz, aliased by
+    the 30 fps camera into frame-to-frame scatter), drift is LOW frequency, so
+    we take the SECOND DIFFERENCE in time:
 
         d2[i] = c[i-1] - 2*c[i] + c[i+1]
 
-    Any constant-velocity motion cancels exactly, so steady drift contributes
-    ZERO. What survives is the frame-to-frame scatter that vibration produces.
-    The /sqrt(6) puts it back on the same scale as a per-frame std-dev.
+    which cancels any constant-velocity motion exactly.
+
+    BUT that cancellation only holds for UNIFORMLY-SPACED samples. Early on this
+    silently collapsed dropped frames — with 37% detection, a 5-frame gap looked
+    like one step, and the drone's drift ACROSS that gap reappeared as a huge
+    fake jitter (a real flight logged 15 px this way; correlating +0.60 with
+    drift gave it away). So we now ONLY difference triplets of three
+    CONSECUTIVE detected frames, and return nan if there aren't enough — a
+    low-detection window yields "n/a", not a fabricated number.
     """
-    if len(corner_history) < 5:
+    triplets = []
+    for i in range(1, len(corner_history) - 1):
+        a, b, c = corner_history[i - 1], corner_history[i], corner_history[i + 1]
+        if a is not None and b is not None and c is not None:
+            triplets.append(a - 2.0 * b + c)
+    if len(triplets) < 4:
         return float("nan")
-    arr = np.array(corner_history, dtype=np.float64)      # (frames, 4, 2)
-    d2 = arr[2:] - 2.0 * arr[1:-1] + arr[:-2]
-    return float(d2.std() / np.sqrt(6.0))
+    return float(np.array(triplets).std() / np.sqrt(6.0))
 
 
 def corner_drift(corner_history):
-    """How far the tag's centre travelled across the window, in px.
-
-    This is your DRIFT — informational only, NOT the vibration metric. It is
-    here so a big number in the jitter column can be sanity-checked: if drift
-    is huge and jitter is small, the high-pass is doing its job.
-    """
-    if len(corner_history) < 2:
+    """How far the tag's centre travelled across the window, in px. Ignores
+    frames where the tag was not detected. Informational only — a big drift
+    with small jitter just confirms the high-pass is doing its job."""
+    seen = [c for c in corner_history if c is not None]
+    if len(seen) < 2:
         return float("nan")
-    centres = np.array(corner_history, dtype=np.float64).mean(axis=1)
+    centres = np.array(seen, dtype=np.float64).mean(axis=1)
     return float(np.linalg.norm(centres[-1] - centres[0]))
 
 
@@ -135,10 +149,11 @@ def measure(picam2, detector, seconds, flip=True):
         if dets:
             hits += 1
             corners.append(dets[0]["corners"].reshape(-1, 2))
+        else:
+            corners.append(None)     # keep the gap so jitter stays uniform-time
     if frames == 0:
         return None
-    # jitter only makes sense over a run of consecutive detections
-    jit = corner_jitter(corners[-60:]) if len(corners) >= 5 else float("nan")
+    jit = corner_jitter(corners[-60:])
     drift = corner_drift(corners[-60:]) if len(corners) >= 2 else float("nan")
     return {
         "frames": frames,
@@ -247,8 +262,10 @@ def run_live(args):
             if dets:
                 hits += 1
                 corners.append(dets[0]["corners"].reshape(-1, 2))
-                corners = corners[-60:]
                 detector.annotate(frame, dets)
+            else:
+                corners.append(None)          # preserve the gap (see corner_jitter)
+            corners = corners[-60:]
 
             jit = corner_jitter(corners)
             dft = corner_drift(corners)
