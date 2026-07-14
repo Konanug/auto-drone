@@ -74,9 +74,11 @@ from pymavlink import mavutil
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
 from vision import camera as cam
+from vision import preprocess as pre
 from vision.apriltag_detector import AprilTagDetector
 from vision.velocity_estimator import VelocityEstimator
 
+STREAM_INTERVAL_S = 1 / 12.0   # debug stream at ~12 fps, not 30
 # ── Camera -> flight-controller mounting offset (measured) ────────────────────
 # Translation from the camera lens to the FC/vehicle center, in the FRD body
 # frame, metres. The tag position is measured by the camera; these shift it to
@@ -315,7 +317,11 @@ def is_engaged(status, link_healthy):
 def run(args):
     picam2 = cam.open_camera(args)
 
-    detector = AprilTagDetector()
+    detector = AprilTagDetector(detect_scale=args.detect_scale)
+
+    prep = pre.Preprocessor(args)
+
+    print(f"[vision] detect_scale={args.detect_scale}  preprocessing: {prep.describe()}")
     velocity = VelocityEstimator()   # supplies the D term — see KD_* above
 
     fc_link = None
@@ -352,6 +358,7 @@ def run(args):
     last_send = 0.0
     last_heartbeat = 0.0
     last_print = 0.0
+    last_stream = 0.0
     last_detection_time = 0.0
     last_det = None
     last_vel = (0.0, 0.0, 0.0)
@@ -363,6 +370,7 @@ def run(args):
         while True:
             frame = picam2.capture_array()
             frame = cv2.flip(frame, -1)  # 180 deg - camera is upside down
+            frame = prep.apply(frame)    # what we detect on IS what we stream
             now = time.monotonic()
 
             if fc_link is not None:
@@ -509,9 +517,13 @@ def run(args):
                     print(f"[{state}] {fc_str}{tail}{echo_str}")
                 last_print = now
 
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if ok:
-                stream_buffer.push(buf.tobytes())
+            # Throttle the stream encode: it costs ~13 ms of a 33 ms frame budget
+            # and a human does not need 30 fps. Detection still runs every frame.
+            if now - last_stream >= STREAM_INTERVAL_S:
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    stream_buffer.push(buf.tobytes())
+                last_stream = now
 
     except KeyboardInterrupt:
         pass
@@ -531,8 +543,15 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     cam.add_camera_args(parser)
+    pre.add_preprocess_args(parser)
+    parser.add_argument("--detect-scale", type=float, default=0.5,
+                        help="Detect on a downscaled image (corners are still "
+                             "refined at full res, so accuracy is kept). 1.0 costs "
+                             "71 ms/frame on the Pi and starves the loop to ~8 fps; "
+                             "0.5 costs 17 ms. Default 0.5.")
     parser.add_argument("--distance", type=float, default=0.5,
                          help="Hover distance from the tag, metres. Default 0.5.")
+    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--dry-run", action="store_true",
                          help="No FC connection at all — vision + computed commands "
                               "+ legend only.")

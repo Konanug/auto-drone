@@ -41,6 +41,7 @@ Browser (live mode): http://<pi-ip>:<port>/stream
 Ctrl+C to stop.
 """
 import argparse
+import csv
 import time
 
 import cv2
@@ -49,6 +50,7 @@ from picamera2 import Picamera2
 
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
 from vision import camera as cam
+from vision import preprocess as pre
 from vision.apriltag_detector import AprilTagDetector
 
 SWEEP_EXPOSURES_US = [500, 1000, 2000, 4000, 8000, 16000, 20000]
@@ -111,7 +113,7 @@ def measure(picam2, detector, seconds, flip=True):
 
 
 def run_sweep(args):
-    detector = AprilTagDetector()
+    detector = AprilTagDetector(detect_scale=args.detect_scale)
     print("\nSweeping exposure. Keep the tag in view and DO NOT move it.")
     print("For a vibration measurement, do this with the motors spinning "
           "(props OFF, STABILIZE only).\n")
@@ -174,8 +176,19 @@ def run_sweep(args):
 
 
 def run_live(args):
-    detector = AprilTagDetector()
+    detector = AprilTagDetector(detect_scale=args.detect_scale)
+    prep = pre.Preprocessor(args)
     picam2 = cam.open_camera(args)
+    print(f"[vision] detect_scale={args.detect_scale}  preprocessing: {prep.describe()}")
+
+    writer = fh = None
+    if args.log:
+        fh = open(args.log, "w", newline="")
+        writer = csv.writer(fh)
+        writer.writerow(["t", "detect_pct", "jitter_px", "sharp", "bright",
+                         "exposure_us", "gain"])
+        print(f"Logging to {args.log} — FLY, land, then read the CSV. "
+              "Nothing to watch mid-flight.")
     httpd, buf = start_mjpeg_server(args.port)
     print(f"Stream: http://{get_local_ip()}:{args.port}/stream")
     print("Ctrl+C to stop.\n")
@@ -187,6 +200,7 @@ def run_live(args):
         while True:
             frame = picam2.capture_array()
             frame = cv2.flip(frame, -1)
+            frame = prep.apply(frame)      # detect on exactly what we display
             frames += 1
             dets = detector.detect(frame)
             if dets:
@@ -210,10 +224,16 @@ def run_live(args):
 
             now = time.monotonic()
             if now - last_print >= 1.0:
+                sh, br = cam.sharpness(frame), cam.brightness(frame)
                 print(f"detect={rate:5.1f}%  jitter="
                       f"{'n/a' if np.isnan(jit) else f'{jit:.2f}px'}  "
-                      f"sharp={cam.sharpness(frame):.0f}  "
-                      f"bright={cam.brightness(frame):.0f}")
+                      f"sharp={sh:.0f}  bright={br:.0f}")
+                if writer is not None:
+                    writer.writerow([f"{time.monotonic():.2f}", f"{rate:.1f}",
+                                     "" if np.isnan(jit) else f"{jit:.3f}",
+                                     f"{sh:.0f}", f"{br:.1f}",
+                                     args.exposure_us, args.gain])
+                    fh.flush()          # survive a hard power-off after landing
                 last_print = now
                 hits = frames = 0     # rolling window
 
@@ -225,12 +245,23 @@ def run_live(args):
     finally:
         picam2.stop()
         httpd.shutdown()
+        if fh is not None:
+            fh.close()
+            print(f"\nSaved {args.log}")
 
 
 def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     cam.add_camera_args(p)
+    pre.add_preprocess_args(p)
+    p.add_argument("--detect-scale", type=float, default=0.5,
+                   help="Detect on a downscaled image (corners still refined at "
+                        "full res). Default 0.5.")
+    p.add_argument("--log", default=None,
+                   help="CSV to record detect%%/jitter to (live mode). Use this to "
+                        "measure DURING A REAL HOVER: fly, land, read the file. No "
+                        "clamped drone, nothing to watch mid-flight.")
     p.add_argument("--live", action="store_true",
                    help="Stream one setting live instead of sweeping.")
     p.add_argument("--port", type=int, default=8080)
