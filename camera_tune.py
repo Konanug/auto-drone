@@ -11,9 +11,16 @@ Two modes:
   reports the numbers that decide whether detection works:
 
       detect%   fraction of frames the tag was found in   <- THE metric
-      jitter    std-dev of the tag's corner pixels across frames, in px.
-                With the drone still this is sensor noise; with motors
-                running it is VIBRATION. This is what wrecks pose estimation.
+      jitter    HIGH-FREQUENCY corner scatter in px = the VIBRATION reaching
+                the sensor. This is what wrecks pose estimation.
+                It is drift-immune: a hovering drone with no GPS cannot hold
+                station, and that drift slides the tag across the image. A
+                naive std-dev would report your drift as vibration. This uses
+                a temporal high-pass (second difference), so steady drift
+                contributes EXACTLY ZERO. Verified: 123 px of drift -> 0.00 px
+                of jitter. You do NOT need to hold the drone still.
+      drift     how far the tag's centre travelled — informational only, so a
+                surprising jitter number can be sanity-checked.
       sharp     variance of Laplacian — higher = crisper edges
       bright    mean pixel level. If this collapses the frame is just DARK,
                 and detection is failing for a reason that is NOT blur.
@@ -22,12 +29,16 @@ Two modes:
   overlaid, so you can watch it while you throttle up.
 
 HOW TO USE IT (the whole point):
-  1. Run it with the drone OFF and the tag at your hover distance. Note the
-     baseline detect% and jitter.
-  2. Run it again with the MOTORS SPINNING (props off, STABILIZE mode only —
-     never an altitude-controlled mode on a restrained drone, that ramps the
-     motors to max). Vibration is now present.
-  3. The exposure where detect% stays high and jitter stays low is your answer.
+  1. TAPE THE TAG to a wall at your hover distance. It must not move — the
+     drone may move all it likes.
+  2. Baseline: run it with the drone off. Note detect% and jitter.
+  3. The real one: FLY A MANUAL HOVER in front of the tag with
+        camera_tune.py --live --log flight1.csv
+     then land and read the CSV. You do NOT have to hold position, and you do
+     NOT have to watch anything mid-flight. A real hover is also the only test
+     that contains real PROP IMBALANCE, which is the dominant vibration source
+     and which a props-off bench run cannot reproduce.
+  4. The exposure where detect% stays high and jitter stays low is your answer.
 
 INTERPRETING IT:
   - jitter drops sharply as exposure shortens  -> your problem is MOTION BLUR,
@@ -70,16 +81,41 @@ class _Settings:
 
 
 def corner_jitter(corner_history):
-    """Std-dev (px) of the tag's corner positions across frames.
+    """HIGH-FREQUENCY corner jitter in px, with slow drift removed.
 
-    Held still, this is sensor noise. With the motors running it is the
-    vibration reaching the sensor — which is precisely what smears the corners
-    and destroys the pose estimate.
+    This must not be a plain std-dev of corner positions. A hovering drone with
+    no GPS and no optical flow DRIFTS — it cannot hold station — and that drift
+    slides the tag across the image. A naive std-dev would report the drift as
+    "jitter" and completely swamp the thing we actually want to measure.
+
+    Vibration is HIGH frequency (65-100 Hz, aliased by the 30 fps camera into
+    random frame-to-frame scatter). Drift is LOW frequency (smooth across many
+    frames). So we take the SECOND DIFFERENCE in time:
+
+        d2[i] = c[i-1] - 2*c[i] + c[i+1]
+
+    Any constant-velocity motion cancels exactly, so steady drift contributes
+    ZERO. What survives is the frame-to-frame scatter that vibration produces.
+    The /sqrt(6) puts it back on the same scale as a per-frame std-dev.
     """
-    if len(corner_history) < 3:
+    if len(corner_history) < 5:
         return float("nan")
-    arr = np.array(corner_history)          # (frames, 4, 2)
-    return float(arr.std(axis=0).mean())
+    arr = np.array(corner_history, dtype=np.float64)      # (frames, 4, 2)
+    d2 = arr[2:] - 2.0 * arr[1:-1] + arr[:-2]
+    return float(d2.std() / np.sqrt(6.0))
+
+
+def corner_drift(corner_history):
+    """How far the tag's centre travelled across the window, in px.
+
+    This is your DRIFT — informational only, NOT the vibration metric. It is
+    here so a big number in the jitter column can be sanity-checked: if drift
+    is huge and jitter is small, the high-pass is doing its job.
+    """
+    if len(corner_history) < 2:
+        return float("nan")
+    centres = np.array(corner_history, dtype=np.float64).mean(axis=1)
+    return float(np.linalg.norm(centres[-1] - centres[0]))
 
 
 def measure(picam2, detector, seconds, flip=True):
@@ -102,24 +138,28 @@ def measure(picam2, detector, seconds, flip=True):
     if frames == 0:
         return None
     # jitter only makes sense over a run of consecutive detections
-    jit = corner_jitter(corners[-60:]) if len(corners) >= 3 else float("nan")
+    jit = corner_jitter(corners[-60:]) if len(corners) >= 5 else float("nan")
+    drift = corner_drift(corners[-60:]) if len(corners) >= 2 else float("nan")
     return {
         "frames": frames,
         "detect_pct": 100.0 * hits / frames,
         "sharp": sharp_sum / frames,
         "bright": bright_sum / frames,
         "jitter": jit,
+        "drift": drift,
     }
 
 
 def run_sweep(args):
     detector = AprilTagDetector(detect_scale=args.detect_scale)
-    print("\nSweeping exposure. Keep the tag in view and DO NOT move it.")
-    print("For a vibration measurement, do this with the motors spinning "
-          "(props OFF, STABILIZE only).\n")
+    print("\nSweeping exposure. TAPE THE TAG DOWN — the tag must not move.")
+    print("The DRONE may drift freely: the jitter metric is drift-immune, so you")
+    print("do not need to hold station. Fly it, or run this with the motors")
+    print("spinning (props OFF, STABILIZE only — never an altitude-held mode on")
+    print("a restrained drone).\n")
     print(f"{'exposure':>10} {'gain':>5} {'detect%':>8} {'jitter px':>10} "
-          f"{'sharp':>8} {'bright':>7}")
-    print("-" * 54)
+          f"{'drift px':>9} {'sharp':>8} {'bright':>7}")
+    print("-" * 64)
 
     results = []
     for exp in args.exposures:
@@ -133,8 +173,9 @@ def run_sweep(args):
         if stats is None:
             continue
         results.append((exp, stats))
-        jit = "  n/a" if np.isnan(stats["jitter"]) else f"{stats['jitter']:10.2f}"
-        print(f"{exp:>8} us {args.gain:>5.1f} {stats['detect_pct']:>7.0f}% {jit} "
+        jit = "       n/a" if np.isnan(stats["jitter"]) else f"{stats['jitter']:10.2f}"
+        dft = "      n/a" if np.isnan(stats["drift"]) else f"{stats['drift']:9.1f}"
+        print(f"{exp:>8} us {args.gain:>5.1f} {stats['detect_pct']:>7.0f}% {jit} {dft} "
               f"{stats['sharp']:>8.0f} {stats['bright']:>7.1f}")
 
     if not results:
@@ -185,8 +226,8 @@ def run_live(args):
     if args.log:
         fh = open(args.log, "w", newline="")
         writer = csv.writer(fh)
-        writer.writerow(["t", "detect_pct", "jitter_px", "sharp", "bright",
-                         "exposure_us", "gain"])
+        writer.writerow(["t", "detect_pct", "jitter_px", "drift_px", "sharp",
+                         "bright", "exposure_us", "gain"])
         print(f"Logging to {args.log} — FLY, land, then read the CSV. "
               "Nothing to watch mid-flight.")
     httpd, buf = start_mjpeg_server(args.port)
@@ -210,11 +251,13 @@ def run_live(args):
                 detector.annotate(frame, dets)
 
             jit = corner_jitter(corners)
+            dft = corner_drift(corners)
             rate = 100.0 * hits / max(1, frames)
             lines = [
                 f"exposure {args.exposure_us} us  gain {args.gain}",
                 f"detect   {rate:5.1f}%",
-                f"jitter   {'n/a' if np.isnan(jit) else f'{jit:.2f} px'}",
+                f"jitter   {'n/a' if np.isnan(jit) else f'{jit:.2f} px'}  (vibration)",
+                f"drift    {'n/a' if np.isnan(dft) else f'{dft:.0f} px'}  (ignored)",
                 f"sharp    {cam.sharpness(frame):.0f}",
                 f"bright   {cam.brightness(frame):.0f}",
             ]
@@ -231,6 +274,7 @@ def run_live(args):
                 if writer is not None:
                     writer.writerow([f"{time.monotonic():.2f}", f"{rate:.1f}",
                                      "" if np.isnan(jit) else f"{jit:.3f}",
+                                     "" if np.isnan(dft) else f"{dft:.1f}",
                                      f"{sh:.0f}", f"{br:.1f}",
                                      args.exposure_us, args.gain])
                     fh.flush()          # survive a hard power-off after landing
