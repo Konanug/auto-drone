@@ -41,11 +41,11 @@ import time
 
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 from pymavlink import mavutil
 
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
 from vision.apriltag_detector import AprilTagDetector
 
 # Condition name -> motor test-sequence number (see module docstring)
@@ -139,13 +139,7 @@ def active_conditions(det, image_center_px, args):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": tuple(args.resolution), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
     detector = AprilTagDetector()
 
@@ -249,6 +243,7 @@ def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    cam.add_camera_args(parser)
     parser.add_argument("--far", type=float, default=1.5,
                          help="distance_m above this = too far (motor 1). Default 1.5.")
     parser.add_argument("--close", type=float, default=0.7,
@@ -257,8 +252,6 @@ def parse_args():
                          help="tag center this many px off-center triggers left/right "
                               "(motor 2/3). Default 120.")
     parser.add_argument("--throttle", type=float, default=4.0, help="Percent throttle.")
-    parser.add_argument("--resolution", type=int, nargs=2, default=(1280, 720))
-    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--dry-run", action="store_true",
                          help="Log condition/motor decisions without connecting to the FC "
                               "or sending any motor command.")

@@ -69,11 +69,11 @@ import time
 
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 from pymavlink import mavutil
 
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
 from vision.apriltag_detector import AprilTagDetector
 from vision.velocity_estimator import VelocityEstimator
 
@@ -313,13 +313,7 @@ def is_engaged(status, link_healthy):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": tuple(args.resolution), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
     detector = AprilTagDetector()
     velocity = VelocityEstimator()   # supplies the D term — see KD_* above
@@ -536,10 +530,9 @@ def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    cam.add_camera_args(parser)
     parser.add_argument("--distance", type=float, default=0.5,
                          help="Hover distance from the tag, metres. Default 0.5.")
-    parser.add_argument("--resolution", type=int, nargs=2, default=(1280, 720))
-    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--dry-run", action="store_true",
                          help="No FC connection at all — vision + computed commands "
                               "+ legend only.")

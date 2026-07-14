@@ -30,9 +30,9 @@ import csv
 import time
 
 import cv2
-from picamera2 import Picamera2
 
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
 from vision.apriltag_detector import AprilTagDetector
 from vision.velocity_estimator import VelocityEstimator
 
@@ -58,13 +58,7 @@ def draw_offset_overlay(frame, center_px, tag_px):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": tuple(args.resolution), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
     detector = AprilTagDetector()
     velocity = VelocityEstimator()
@@ -157,8 +151,7 @@ def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--resolution", type=int, nargs=2, default=(1280, 720))
-    parser.add_argument("--port", type=int, default=8080)
+    cam.add_camera_args(parser)
     parser.add_argument("--log", default=None, help="Optional CSV path to log every detection to.")
     return parser.parse_args()
 

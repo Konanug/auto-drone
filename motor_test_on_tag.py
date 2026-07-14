@@ -41,11 +41,11 @@ import argparse
 import time
 
 import cv2
-from picamera2 import Picamera2
 from pymavlink import mavutil
 
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
 from vision.apriltag_detector import AprilTagDetector
 
 TAG_LOSS_GRACE_S = 0.3  # tag must be absent this long before a re-detection counts as new
@@ -71,13 +71,7 @@ def send_motor_test(fc_link, motor_number, throttle_pct, duration_s):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": (1280, 720), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
     detector = AprilTagDetector()
 
@@ -129,6 +123,7 @@ def run(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
+    cam.add_camera_args(parser)
     parser.add_argument("--motor", type=int, default=2,
                          help="Motor test-SEQUENCE position (not the ESC output number). "
                               "With MOTOR_TEST_ORDER_DEFAULT, ArduPilot numbers motors "
