@@ -17,8 +17,13 @@ ArduPilot (running on the SpeedyBee F405 V3) remains solely responsible for stab
 motor mixing, arming logic, and failsafes. **The Pi never talks to motors directly and never
 arms the vehicle.**
 
-Current phase: vision + telemetry monitoring, integrated but not yet closing the control
-loop. See "Project Status" below for exactly what exists today.
+Current phase: **first control code, bench-validation stage.** Vision and the MAVLink link
+are validated end-to-end (heartbeats both ways; Pi -> FC command authority proven via
+`MAV_CMD_DO_MOTOR_TEST` bench scripts). With explicit user sign-off, the first bounded
+GUIDED_NOGPS hover controller (`hover_on_tag.py`, streaming `SET_ATTITUDE_TARGET`) has been
+written — it is **not flight-approved**: it still needs the TX mode-switch override
+configured/tested and the full props-off bench sequence before any armed run. See "Project
+Status" below for exactly what exists today.
 
 ---
 
@@ -88,16 +93,15 @@ rpicam-hello --list-cameras
 # Check the UART is present
 ls -l /dev/serial0
 
-# Vision-only validation — no MAVLink involved at all (current recommended
-# way to test the Pi/camera side before any flight-controller integration)
+# Vision-only validation — no MAVLink involved at all
 python3 vision_test.py
 python3 vision_test.py --log calibration/run1.csv   # also log every detection to CSV
 
-# Run the main app (vision + optional MAVLink telemetry monitoring)
-python3 main.py
+# MAVLink-only connection check — no camera/vision involved at all
+python3 mavlink_test.py
 
-# Run vision-only, without attempting a flight-controller link
-python3 main.py --no-mavlink
+# Hover controller, dry-run (no FC connection, no commands — vision + legend only)
+python3 hover_on_tag.py --dry-run
 ```
 
 ---
@@ -123,9 +127,27 @@ Suggested validation pass:
    back toward zero when it stops.
 4. If numbers look off, suspect uncalibrated intrinsics first — see "Camera Calibration".
 
-`main.py` is the integrated entrypoint (vision + optional read-only MAVLink telemetry) and
-will be where control logic eventually lands; `vision_test.py` stays MAVLink-free permanently
-as a fast way to sanity-check the vision stack in isolation.
+The integrated entrypoint (vision + MAVLink telemetry, previously `main.py`) has been removed
+for this camera/CV-focused phase — it will be reintroduced once flight-controller integration
+resumes. `vision_test.py` stays MAVLink-free permanently as a fast way to sanity-check the
+vision stack in isolation.
+
+---
+
+## Testing the MAVLink Link
+
+`mavlink_test.py` is the MAVLink counterpart to `vision_test.py` — **zero camera/vision code
+path**, just the serial link to the flight controller. It:
+
+- Connects on `/dev/serial0` @ 921600 baud (override with `--device`/`--baud`)
+- Waits for the first heartbeat (fails fast with a wiring/baud/`SERIALx_PROTOCOL` hint if none
+  arrives within `--timeout` seconds, default 10s)
+- Prints armed state, flight mode, and link health at 1 Hz
+- Sends this Pi's own heartbeat back once a second — presence-only, no command authority
+
+This only proves the wire is alive and MAVLink2 framing is correct end-to-end; it does not
+arm, change mode, or send any position/attitude target. Use it before trusting any MAVLink
+work in `main.py` once that's reintroduced.
 
 ---
 
@@ -136,25 +158,51 @@ as a fast way to sanity-check the vision stack in isolation.
   FRD body frame (forward/right/down, yaw/pitch/roll).
 - Per-tag velocity estimation (`vision/velocity_estimator.py`), smoothed finite-difference on
   the FRD position.
-- MJPEG live stream (`streaming/mjpeg_server.py`, shared by `main.py` and `vision_test.py`).
+- MJPEG live stream (`streaming/mjpeg_server.py`, used by `vision_test.py`).
 - `vision_test.py` — MAVLink-free validation harness with offset/velocity overlay + CSV logging.
-- Read-only MAVLink link (`mavlink/connection.py`): connects, waits for heartbeat, reports
-  armed state, flight mode, and link health. Sends its own heartbeat (presence-only).
-- A freshness watchdog (`safety/watchdog.py`) tracking camera/detection/MAVLink staleness —
-  currently observation/logging only.
 - Camera calibration tooling (`calibration/`) — chessboard capture + `cv2.calibrateCamera`.
+- Read-only MAVLink link (`mavlink/connection.py`): connects, binds to the autopilot's
+  heartbeat (filtering out GCS heartbeats), reports armed state, flight mode, and link
+  health. Sends its own heartbeat (presence-only). Exposes `raw_connection` for the few
+  scripts that hold command authority.
+- `mavlink_test.py` — MAVLink-only connection validation harness, no camera/vision code path.
+- `motor_test_on_tag.py` — first command-authority bench script: one `MAV_CMD_DO_MOTOR_TEST`
+  spin on tag (re)acquisition. NOTE: motor numbers are `MOTOR_TEST_ORDER_DEFAULT`
+  test-sequence positions (Mission Planner's Test A/B/C/D = 1..4, clockwise from
+  front-right), NOT ESC output-channel labels — this was confirmed empirically.
+- `vision_to_motor_indicator.py` — maps tag-position conditions (far/left/right/close) to
+  per-motor spins as a visible indicator that the FC acts on vision directives; includes the
+  origin->tag vector + pose-legend verification overlay and a `--dry-run` mode.
+- `hover_on_tag.py` — **the first real control loop (bench-validation stage, NOT
+  flight-approved).** Streams bounded `SET_ATTITUDE_TARGET` in GUIDED_NOGPS: yaw rate from
+  tag bearing, roll from tag skew (square-up), pitch from distance error (default 0.5 m),
+  thrust as climb-rate demand around 0.5 from vertical offset. Sends nothing unless it
+  observes armed + GUIDED_NOGPS (pilot engages via TX switch); tag lost -> streams neutral
+  hover + warning, auto-resumes on re-acquisition. Camera->FC mounting offsets are
+  placeholder constants awaiting measured values. Gains/signs are placeholders pending
+  props-off bench verification.
+
+**Removed for now (was implemented, deferred):**
+- `safety/watchdog.py` — freshness watchdog module (superseded for now by inline staleness
+  checks in `hover_on_tag.py`; the standalone module returns when integration matures).
+- `main.py` — integrated entrypoint that combined vision with MAVLink telemetry.
+
+Both are recoverable from git history when that stage resumes; see the roadmap below.
 
 **Not implemented — deliberately:**
-- Anything that arms, disarms, changes flight mode, or sends an attitude/position/velocity
-  target. No `SET_ATTITUDE_TARGET`, no `COMMAND_LONG` mode changes, nothing that can move the
-  vehicle. This is a hard line — see "Control Architecture" and "Safety Rules" below.
+- Anything that arms, disarms, or changes flight mode. The Pi observes armed state and mode;
+  the pilot controls both via the transmitter. This line has NOT moved.
+- Position/velocity targets, RC overrides, EKF feeding. Attitude targets
+  (`SET_ATTITUDE_TARGET`) are now in scope, but only via `hover_on_tag.py`'s bounded,
+  gated loop — see "Control Architecture" and "Safety Rules" below.
 
-If you (Claude) are asked to "wire up control" or "make it follow the tag," that crosses this
-line — stop and confirm with the user first, even if it seems like the obvious next step.
+If you (Claude) are asked to extend command authority beyond this (arming, mode changes,
+new scripts that move the vehicle, relaxing clamps/gates), stop and confirm with the user
+first, even if it seems like the obvious next step.
 
 ---
 
-## Control Architecture (target design — not yet built)
+## Control Architecture (implemented in `hover_on_tag.py` — bench-validation stage)
 
 **Why not plain `GUIDED` mode:** ArduCopter's `GUIDED` mode accepts position/velocity targets,
 which require the EKF to have a position source (GPS, optical flow, or vision-based aiding).
@@ -209,6 +257,94 @@ user approval before implementation, and props-off bench validation before any p
 
 ---
 
+## SITL — the ONLY way to validate control code (read before bench-debugging)
+
+**You cannot validate the GUIDED_NOGPS control loop on the ground. Do not try.**
+ArduCopter's `ModeGuided::angle_control_run()` early-returns into
+`make_safe_ground_handling()` whenever `!auto_armed || land_complete` — so while the vehicle is
+landed it **discards every attitude target**. `ATTITUDE_TARGET` echoes zero and the motors stay
+at ground idle no matter what you send. This is by design, not a bug, and it burned a lot of
+bench time before we understood it. Motor RPM and the echo are both dead ends on the ground.
+
+ArduPilot SITL is built at `~/ardupilot` (aarch64, `./waf configure --board sitl && ./waf copter`,
+~20 min on the Pi). Run it and validate:
+
+```bash
+# terminal 1 — simulated copter, listens on tcp:127.0.0.1:5760
+cd /tmp/sitl_run && ~/ardupilot/build/sitl/bin/arducopter --model quad \
+    --defaults ~/ardupilot/Tools/autotest/default_params/copter.parm
+
+# terminal 2 — arms, takes off, hands over to GUIDED_NOGPS, tests every axis
+python3 sitl_validate.py
+```
+
+`sitl_validate.py` imports `hover_on_tag`'s *real* send path (not a copy) and asserts: the FC
+ingests `SET_ATTITUDE_TARGET` (echo tracks), +roll drifts right, −pitch drives forward, +yaw
+target turns right, thrust >0.5 climbs. It **refuses to run against a serial device** — it arms
+and flies, so it is simulator-only.
+
+**Two real bugs it caught, both of which silently broke everything (don't reintroduce):**
+1. **`type_mask` must be 0.** ArduCopter accepts only *all three* body-rate-ignore bits set, or
+   *all three* clear. The natural-looking choice (ignore roll+pitch rate, supply yaw rate) is an
+   illegal mix and the FC **discards the whole message** — `"The body rates are ill-defined" ->
+   hold_position(); return`. Supply all three rates as zeros and carry attitude in the quaternion.
+2. **The quaternion's yaw is an ABSOLUTE earth-frame heading, not an offset.** Hardcoding `yaw=0`
+   commands the drone to *turn and face north*. Yaw must be sent as
+   `(FC's current ATTITUDE yaw) + correction`, which means a fresh `ATTITUDE` message is a hard
+   prerequisite for sending at all (`NO_HEADING` state gates this).
+   A yaw *rate* in `body_yaw_rate` does nothing — the quaternion's yaw always wins.
+
+Bonus gotcha: when polling MAVLink in a loop, **drain the queue** (`while recv_match(blocking=False)`),
+don't read one message per iteration — the backlog grows and every reading goes stale, which
+produced convincing but completely bogus "the FC isn't responding" results.
+
+---
+
+## Closed-loop tuning in SITL (`sitl_tag_sim.py`) — and what it found
+
+`sitl_tag_sim.py` puts a VIRTUAL AprilTag in the SITL world, synthesises the detection the
+real camera would produce from the simulated drone's true pose, and feeds it through
+`hover_on_tag.compute_commands()` — the real control law, not a copy. That closes the whole
+loop (vision -> control -> FC -> motion -> vision) and is how the gains were tuned.
+
+```bash
+python3 sitl_tag_sim.py                                   # default scenario
+python3 sitl_tag_sim.py --tag-range 6 --tag-skew -35      # harder start
+python3 sitl_tag_sim.py --kd-roll 2.5                     # sweep one gain
+```
+
+**Three real design bugs it caught — all of which would have crashed the real drone:**
+
+1. **Pure-P control cannot work here.** Tilt commands ACCELERATION while we control POSITION —
+   a double integrator, which a P-only controller can never stabilise. The drone pinned max
+   forward tilt for the whole approach and flew straight *through* the tag. Fixed by adding
+   velocity damping (`KD_*`) fed from `vision/velocity_estimator.py`. **Never remove the D terms.**
+2. **`KD_ROLL` had the wrong sign — it was ANTI-damping.** `v_right` goes *negative* when the
+   drone strafes right, so braking needs a POSITIVE coefficient. With it negative, adding
+   "damping" pumped energy in and the drone orbited the tag forever. Sign is counterintuitive
+   because the velocity is the *tag's* relative to the camera, not the drone's.
+3. **"Yaw to centre the tag + roll to null the skew" is structurally unstable.** The two loops
+   chase each other (strafe -> changes bearing -> yaws -> changes skew -> strafe) and the drone
+   ORBITS. Replaced with a decoupled goal-point controller: compute where the drone should be
+   (the point `--distance` out along the tag's normal), drive pitch/roll straight at it, and let
+   yaw independently point the nose at the tag.
+
+Also: **the approach must be speed-capped** (`MAX_APPROACH_ERR_M`). The goal point's lateral
+offset is only `distance * sin(skew)` — tiny — so without a cap the drone rushes the tag far
+faster than it squares up, arrives at a huge viewing angle, and the tag becomes undetectable
+(AprilTags cannot be decoded past ~60 deg edge-on).
+
+Converges from both a 4 m/+20 deg and a 6 m/-35 deg start: distance err <0.08 m, lateral
+<0.01 m, vertical <0.05 m, skew ~5 deg, zero frames lost.
+
+**Gains transfer to the real drone reasonably well** because we command angles + a climb rate,
+not motor outputs: `a = g*tan(roll)` is airframe-independent, and `WPNAV_SPEED_UP` is 250 on
+both. The real 816 g / ~7:1-thrust airframe is punchier than SITL's default quad, so these
+gains land on the CONSERVATIVE side — the safe direction. Drag/wind/camera-latency are not
+modelled; treat them as a sane starting point, not final numbers.
+
+---
+
 ## Camera Calibration
 
 `vision/apriltag_detector.py` loads `config/camera_intrinsics.npz` if present; otherwise it
@@ -234,8 +370,8 @@ This produces `config/camera_intrinsics.npz`, picked up automatically on the nex
    varies by OS image).
 3. **Don't use `time.sleep()` in the capture loop** — `picamera2` manages frame timing
    internally; a blocking sleep just adds latency.
-4. **Always call `picam2.stop()`** (and close the MAVLink connection) on exit — uncleaned
-   camera handles can block future runs and require a reboot.
+4. **Always call `picam2.stop()`** (and, once MAVLink returns, close that connection too) on
+   exit — uncleaned camera handles can block future runs and require a reboot.
 5. **Autofocus** — Camera Module 3 has PDAF. Continuous AF adds latency/hunting that will
    show up as pose jitter; lock or trigger AF explicitly once that becomes a problem.
 6. **MAVLink serial config:** Pi side is `/dev/serial0` @ 921600 baud. The matching FC side
@@ -248,18 +384,19 @@ This produces `config/camera_intrinsics.npz`, picked up automatically on the nex
 
 ```
 Cam_Test/
-├── main.py                 # Integrated entrypoint: vision + optional MAVLink telemetry
 ├── vision_test.py          # MAVLink-free validation harness: pose + velocity + offset overlay
+├── mavlink_test.py          # Camera-free validation harness: heartbeat + link health check
+├── motor_test_on_tag.py     # Bench: one DO_MOTOR_TEST spin on tag (re)acquisition
+├── vision_to_motor_indicator.py  # Bench: tag far/left/right/close -> per-motor spin indicator
+├── hover_on_tag.py          # GUIDED_NOGPS hover controller (bench-validation stage)
 ├── vision/
 │   ├── apriltag_detector.py    # Detection + pose estimation, calibration-aware
 │   ├── velocity_estimator.py   # Per-tag smoothed velocity from consecutive detections
 │   └── frame_transform.py      # Camera frame -> ArduPilot FRD body frame conversion
-├── streaming/
-│   └── mjpeg_server.py         # Shared MJPEG-over-HTTP server (used by main.py and vision_test.py)
 ├── mavlink/
 │   └── connection.py           # Read-only heartbeat/telemetry link (no command authority)
-├── safety/
-│   └── watchdog.py             # Freshness monitor for camera/detection/mavlink
+├── streaming/
+│   └── mjpeg_server.py         # Shared MJPEG-over-HTTP server (used by vision_test.py)
 ├── calibration/
 │   ├── capture_calibration_images.py
 │   ├── calibrate_camera.py
@@ -274,6 +411,9 @@ Cam_Test/
 └── requirements.txt
 ```
 
+`main.py` and `safety/` are still removed for this camera/CV-focused phase — see "Project
+Status" above. They'll return (from git history) when flight-controller integration resumes.
+
 Tag in use: **family 36h11, ID 0, 16.8 cm side length** (`assets/apriltag_print.pdf`).
 
 ---
@@ -281,10 +421,10 @@ Tag in use: **family 36h11, ID 0, 16.8 cm side length** (`assets/apriltag_print.
 ## Python Code Style for This Project
 
 - Python 3.11+, type hints on function signatures welcome but not required
-- Small, focused modules (`vision/`, `mavlink/`, `safety/`) over one large script — this
-  project's whole point is that vision, telemetry, and (later) control stay separable and
+- Small, focused modules (`vision/`, and later `mavlink/`, `safety/`) over one large script —
+  this project's whole point is that vision, telemetry, and (later) control stay separable and
   independently testable
-- Use `argparse` for CLI flags (resolution, port, MAVLink device/baud, `--no-mavlink`)
+- Use `argparse` for CLI flags (resolution, port, etc.)
 - No logging frameworks yet — `print()` is fine for debug output at this stage
 - Format with `black` if available; otherwise PEP 8 spacing
 
@@ -301,11 +441,32 @@ before anything with command authority is added:
 - [x] MAVLink-free vision validation harness (`vision_test.py`)
 - [x] Read-only MAVLink telemetry (heartbeat, armed state, mode, link health)
 - [x] Camera calibration tooling
+- [x] Pi -> FC command authority proven (`MAV_CMD_DO_MOTOR_TEST` bench scripts, props off)
 - [ ] Vision pipeline validated against known distances/offsets using `vision_test.py`
 - [ ] Camera calibration actually run and `config/camera_intrinsics.npz` committed to use
-- [ ] Verify transmitter mode-switch override out of `GUIDED_NOGPS` in Mission Planner
-- [ ] Bounded `GUIDED_NOGPS` + `SET_ATTITUDE_TARGET` control loop (props off first)
-- [ ] Tune correction gains, rate limits, and watchdog-triggered cutoff, props off
+- [ ] **Verify transmitter mode-switch override out of `GUIDED_NOGPS` in Mission Planner —
+  REQUIRED before any armed run of `hover_on_tag.py` (it is also the engage switch)**
+- [x] Bounded `GUIDED_NOGPS` + `SET_ATTITUDE_TARGET` control loop written (`hover_on_tag.py`)
+- [ ] Verify `GUID_OPTIONS=0` (thrust = climb-rate demand, 0.5 = hold alt) and `GUID_TIMEOUT`
+  on the FC before first armed run
+- [ ] Measure and fill in the camera->FC mounting offsets in `hover_on_tag.py`
+- [x] ArduPilot SITL built and `sitl_validate.py` written (see "SITL" section)
+- [x] **Control path validated in SITL** — FC ingests `SET_ATTITUDE_TARGET`; +roll drifts right,
+  -pitch drives forward, +yaw target turns right, thrust >0.5 climbs. All sign conventions
+  confirmed correct. Two message-format bugs found and fixed this way.
+- [ ] ~~Bench-validate props-off~~ — **NOT POSSIBLE**: ArduCopter discards attitude targets while
+  landed. Ground testing of the control loop is a dead end; use SITL.
+- [x] **Outer-loop gains tuned in SITL closed-loop** (`sitl_tag_sim.py`) — converges from 4 m
+  and 6 m starts, both skew directions. Three design bugs found and fixed (see "Closed-loop
+  tuning" above): missing D terms, inverted `KD_ROLL`, and the orbit-prone skew/yaw coupling.
+- [ ] **AUTOTUNE the inner loop on the real airframe.** Mission Planner's Initial Parameter
+  Setup was run (7" props / 6S: `INS_GYRO_FILTER=57`, `MOT_THST_EXPO=0.54`, accel limits,
+  `MOT_THST_HOVER=0.20`), and the 6S battery failsafe is configured (`BATT_LOW/CRT_VOLT`
+  21.0/19.8, action=Land — RTL is wrong with no GPS). But `ATC_RAT_*` are still STOCK defaults
+  aimed at a ~10" copter. Our outer loop rides on this — **no vision tuning fixes a bad inner
+  loop.**
+- [ ] Manual hover in Stabilize, then AltHold (lets `MOT_HOVER_LEARN` converge the real hover
+  throttle), then AUTOTUNE — **in that order, before any GUIDED_NOGPS flight**
 - [ ] First props-on hover test, tethered/caged, tag stationary
 - [ ] Tag motion following
 - [ ] Longer-term: optical flow or a rangefinder if drift/altitude hold become limiting
