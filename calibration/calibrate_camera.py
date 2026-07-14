@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 CHESSBOARD_SIZE = (9, 6)   # internal corners (columns, rows) — must match capture script
-SQUARE_SIZE_M = 0.025      # physical size of one chessboard square, metres — measure yours
+SQUARE_SIZE_M = 0.019      # physical size of one chessboard square, metres — measure yours
 
 IMAGES_DIR = Path(__file__).resolve().parent / "images"
 OUT_PATH = Path(__file__).resolve().parent.parent / "config" / "camera_intrinsics.npz"
