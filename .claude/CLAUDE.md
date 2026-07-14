@@ -69,7 +69,7 @@ today's slow/bench-test speeds; worth revisiting if the airframe moves fast duri
 | Tag detection | `cv2.aruco` with `DICT_APRILTAG_36H11` | True AprilTag family, no separate `apriltag` library dependency — OpenCV's ArUco module detects it directly |
 | Pose estimation | `cv2.aruco.estimatePoseSingleMarkers` | Needs calibrated camera intrinsics — see "Camera Calibration" |
 | MAVLink | `pymavlink` | **Not DroneKit** — DroneKit is unmaintained and has known compatibility gaps with current ArduPilot/MAVLink2; pymavlink is what ArduPilot's own tooling and most companion-computer projects use today |
-| Video delivery | MJPEG over a small stdlib HTTP server | No X11 dependency — the drone isn't tethered to a monitor, and `cv2.imshow` over SSH/X11 doesn't make sense once this is flying. X11 (`ssh -X` + `cv2.imshow`) is still fine for one-off bench tools like camera calibration. |
+| Video delivery | MJPEG over a small stdlib HTTP server | No X11 dependency — the drone isn't tethered to a monitor, and `cv2.imshow` over SSH/X11 doesn't make sense once this is flying. **Every tool, including calibration capture, is headless via the MJPEG stream** — nothing needs a display. |
 | Numpy | `numpy` | Frame buffer + pose math |
 
 ---
@@ -83,8 +83,8 @@ today's slow/bench-test speeds; worth revisiting if the airframe moves fast duri
   talks to the FC directly over its own MAVLink connection, independent of whatever Mission
   Planner is doing.
 - View the live annotated stream at `http://<pi-ip>:8080/stream` from any browser on the LAN.
-- `ssh -X` + `cv2.imshow()` is only used for one-off interactive tools (e.g. calibration
-  capture) run on the bench, never for the main drone-facing application.
+- Nothing uses `cv2.imshow` or needs a display; every tool (including calibration
+  capture) streams to the browser over MJPEG, so plain SSH is enough.
 
 ```bash
 # Verify camera hardware
@@ -359,7 +359,9 @@ prints a warning. The fallback is fine for a first bring-up but **not accurate e
 distance/pose-based control** — run the calibration flow before that matters:
 
 ```bash
-python3 calibration/capture_calibration_images.py   # needs a monitor/X11 for cv2.imshow
+python3 calibration/capture_calibration_images.py   # headless: watch http://<pi-ip>:8080/stream, auto-captures
+#   IMPORTANT: focus is locked at 1 m to match flight; measure a square and set
+#   SQUARE_SIZE_M in calibrate_camera.py before running calibrate
 python3 calibration/calibrate_camera.py
 ```
 
