@@ -175,7 +175,7 @@ work in `main.py` once that's reintroduced.
   origin->tag vector + pose-legend verification overlay and a `--dry-run` mode.
 - `hover_on_tag.py` — **the first real control loop (bench-validation stage, NOT
   flight-approved).** Streams bounded `SET_ATTITUDE_TARGET` in GUIDED_NOGPS: yaw rate from
-  tag bearing, roll from tag skew (square-up), pitch from distance error (default 0.5 m),
+  tag bearing, roll from tag skew (square-up), pitch from distance error (default 1.0 m),
   thrust as climb-rate demand around 0.5 from vertical offset. Sends nothing unless it
   observes armed + GUIDED_NOGPS (pilot engages via TX switch); tag lost -> streams neutral
   hover + warning, auto-resumes on re-acquisition. Camera->FC mounting offsets are
@@ -335,7 +335,13 @@ faster than it squares up, arrives at a huge viewing angle, and the tag becomes 
 (AprilTags cannot be decoded past ~60 deg edge-on).
 
 Converges from both a 4 m/+20 deg and a 6 m/-35 deg start: distance err <0.08 m, lateral
-<0.01 m, vertical <0.05 m, skew ~5 deg, zero frames lost.
+<0.01 m, vertical <0.05 m, skew <3 deg, zero frames lost.
+
+**Hover setpoint is 1.0 m** (`--distance`, and `--focus-m` must match it — the camera's focus
+is locked, so a mismatch puts the tag outside the depth of field). The setpoint is not a free
+parameter: the goal point's lateral offset is `distance * sin(skew)`, so a LARGER distance
+gives the squaring-up loop MORE authority. Moving 0.5 m -> 1.0 m improved steady-state skew
+from ~5.8 deg to ~2.8 deg for free. Re-run `sitl_tag_sim.py` if you change it again.
 
 **Gains transfer to the real drone reasonably well** because we command angles + a climb rate,
 not motor outputs: `a = g*tan(roll)` is airframe-independent, and `WPNAV_SPEED_UP` is 250 on

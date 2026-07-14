@@ -2,7 +2,7 @@
 """
 hover_on_tag.py — GUIDED_NOGPS visual-servo hover controller.
 
-Holds the drone hovering --distance metres (default 0.5) from the AprilTag,
+Holds the drone hovering --distance metres (default 1.0) from the AprilTag,
 centered on it and square to its face, by streaming SET_ATTITUDE_TARGET while
 ArduPilot is armed and in GUIDED_NOGPS.
 
@@ -89,9 +89,14 @@ CAM_OFFSET_RIGHT_M = 0.0     # camera right of FC = positive
 CAM_OFFSET_DOWN_M = -0.030   # camera below FC = positive (ours is above => negative)
 
 # ── Controller gains / limits ─────────────────────────────────────────────────
-# TUNED IN SITL CLOSED-LOOP (sitl_tag_sim.py). Converges from a 4 m/+20 deg and
-# a 6 m/-35 deg start: distance err <0.08 m, lateral <0.01 m, vertical <0.05 m,
-# skew ~5 deg, zero frames lost. They are on the CONSERVATIVE side for the real
+# TUNED IN SITL CLOSED-LOOP (sitl_tag_sim.py), and RE-VALIDATED at the 1.0 m
+# setpoint. Converges from a 4 m/+20 deg and a 6 m/-35 deg start: distance err
+# <0.08 m, lateral <0.01 m, vertical <0.05 m, skew <3 deg, zero frames lost.
+#
+# The setpoint is NOT a free parameter. The goal point's lateral offset is
+# distance * sin(skew), so a LARGER --distance gives the squaring-up loop MORE
+# authority: moving 0.5 -> 1.0 m improved steady-state skew from 5.8 to 2.8 deg
+# on its own. Re-run sitl_tag_sim.py if you change --distance again. They are on the CONSERVATIVE side for the real
 # 816 g / ~7:1-thrust airframe, which is punchier than SITL's default quad.
 # Re-run sitl_tag_sim.py after changing any of them.
 
@@ -549,8 +554,10 @@ def parse_args():
                              "refined at full res, so accuracy is kept). 1.0 costs "
                              "71 ms/frame on the Pi and starves the loop to ~8 fps; "
                              "0.5 costs 17 ms. Default 0.5.")
-    parser.add_argument("--distance", type=float, default=0.5,
-                         help="Hover distance from the tag, metres. Default 0.5.")
+    parser.add_argument("--distance", type=float, default=1.0,
+                         help="Hover distance from the tag, metres. Default 1.0. "
+                              "NOTE: --focus-m should match this, and changing it "
+                              "changes the goal-point geometry — re-run sitl_tag_sim.py.")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--dry-run", action="store_true",
                          help="No FC connection at all — vision + computed commands "

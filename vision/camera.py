@@ -10,7 +10,8 @@ worst possible choice here:
                 entire vibration amplitude. This is the single biggest cause
                 of failed detection in flight.
   AnalogueGain  default 1.0, with 16x of unused headroom.
-  LensPosition  default 1.0 dioptre = focused at 1 m, while we hover at 0.5 m.
+  LensPosition  a fixed default, and continuous autofocus hunts on a
+                vibrating platform — every hunt is a blurred frame.
   NoiseReduction / Sharpness  tuned for pretty photos, not for crisp edges.
 
 So we go fully manual:
@@ -50,8 +51,9 @@ DEFAULT_EXPOSURE_US = 2000
 DEFAULT_GAIN = 8.0
 
 # LensPosition is in DIOPTRES (1 / distance_in_metres), not metres.
-# 0.5 m -> 2.0 dioptres. This matches hover_on_tag's default --distance.
-DEFAULT_FOCUS_M = 0.5
+# 1.0 m -> 1.0 dioptre. This MATCHES hover_on_tag's default --distance; if you
+# change one, change the other or the tag sits outside the depth of field.
+DEFAULT_FOCUS_M = 1.0
 
 MIN_EXPOSURE_US = 1
 MAX_EXPOSURE_US = 66666

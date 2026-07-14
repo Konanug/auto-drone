@@ -10,7 +10,7 @@ resulting attitude target is streamed to the simulated FC.
 
 So this closes the whole loop: vision -> control law -> FC -> vehicle motion ->
 new vision. It answers the questions the axis-by-axis test cannot:
-  - does it CONVERGE on the tag (0.5 m, centred, square-on)?
+  - does it CONVERGE on the tag (--distance, centred, square-on)?
   - does it OSCILLATE, overshoot, or diverge?
   - are the gains in the right ballpark?
 
@@ -322,7 +322,7 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--device", default="tcp:127.0.0.1:5760")
-    p.add_argument("--distance", type=float, default=0.5, help="hover setpoint (m)")
+    p.add_argument("--distance", type=float, default=1.0, help="hover setpoint (m)")
     p.add_argument("--duration", type=float, default=60.0)
     p.add_argument("--tag-range", type=float, default=4.0, help="initial distance to tag")
     p.add_argument("--tag-offset", type=float, default=1.0, help="initial lateral offset")
