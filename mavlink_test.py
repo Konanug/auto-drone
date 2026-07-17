@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""
-mavlink_test.py — MAVLink-only connection validation harness, companion-computer side.
-
-Verifies the Pi <-> flight-controller serial link works in isolation, with
-zero camera/vision code path. Connects, waits for the first heartbeat, then
-prints armed state, flight mode, and link health at 1 Hz while sending this
-Pi's own presence-only heartbeat back.
-
-Sends no command that can arm, disarm, change flight mode, or move the
-vehicle — see mavlink/connection.py.
-
-Ctrl+C to stop.
-"""
 import argparse
 import sys
 import time
