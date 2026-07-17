@@ -1,30 +1,4 @@
 #!/usr/bin/env python3
-"""
-guided_echo_test.py — does the FC actually ingest our SET_ATTITUDE_TARGET?
-
-Isolates the MAVLink control path from the vision pipeline entirely: NO camera,
-NO AprilTag, NO vision. It streams a slow, gentle oscillating roll target
-(+/-3 deg, level pitch, thrust 0.5 = hold altitude) whenever it observes
-armed + GUIDED_NOGPS, and prints, side by side:
-
-    SENT  — the SET_ATTITUDE_TARGET (#82) we transmit to the FC
-    ECHO  — the ATTITUDE_TARGET (#83) the FC reports as its current target
-
-If ECHO tracks SENT, the FC is receiving and acting on our commands and the
-control path is proven. If we never engage, it says so loudly and explains why.
-
-This deliberately does NOT depend on seeing motor RPM change: ArduCopter
-suppresses attitude output to the motors while it believes it is landed, so
-motor response is NOT a valid way to verify this on the bench.
-
-SAFETY:
-- Propellers MUST be removed.
-- Keep the vehicle on the ground / strapped down. Do not hand-hold it.
-- Sends nothing at all unless the pilot has armed AND selected GUIDED_NOGPS.
-- Set DISARM_DELAY=0 first or the FC auto-disarms after ~10 s on the ground.
-
-Ctrl+C to stop.
-"""
 import argparse
 import math
 import time
