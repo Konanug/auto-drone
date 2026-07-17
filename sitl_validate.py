@@ -1,34 +1,5 @@
 #!/usr/bin/env python3
-"""
-sitl_validate.py — validate the GUIDED_NOGPS control path against ArduPilot SITL.
 
-This answers the questions the bench physically CANNOT answer, because
-ArduCopter refuses to run guided attitude control while it believes it is
-landed (mode_guided.cpp: angle_control_run() early-returns into
-make_safe_ground_handling() unless auto_armed && !land_complete). On the
-ground the FC discards our attitude targets, which is why ATTITUDE_TARGET
-echoes zero and motors never respond. In the air, it acts on them.
-
-So we fly a SIMULATED copter and check, in flight:
-
-  1. INGESTION  — does the FC's ATTITUDE_TARGET (#83) echo track the
-                  SET_ATTITUDE_TARGET (#82) we send?
-  2. SIGNS      — does each axis move the vehicle the way hover_on_tag.py
-                  assumes? Commanding +roll must actually drift RIGHT,
-                  -pitch must drive FORWARD, +yaw-rate must turn RIGHT,
-                  thrust >0.5 must CLIMB. A wrong sign here means the real
-                  drone would fly AWAY from the tag.
-
-!!! SITL ONLY !!!
-This script arms and flies the vehicle. It refuses to run against a serial
-device (a real flight controller) — see require_sitl(). Never point it at
-/dev/serial0. The Pi still never arms the real vehicle; that is the pilot's
-job via the transmitter.
-
-Usage (with SITL running):
-    sim_vehicle.py -v ArduCopter -f quad --no-mavproxy   # in ardupilot/
-    python3 sitl_validate.py
-"""
 import argparse
 import math
 import sys
