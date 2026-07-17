@@ -12,10 +12,9 @@ vehicle. MAV_CMD_DO_MOTOR_TEST is ArduPilot's own bench-test command: it only
 runs while disarmed, spins exactly one motor for a bounded duration, and
 needs no flight-mode change or arming. It is NOT the same code path as
 GUIDED_NOGPS + SET_ATTITUDE_TARGET (continuous real-time attitude
-streaming) — that is a separate, larger step gated on the roadmap items in
-.claude/CLAUDE.md ("Control Architecture"): verified transmitter mode-switch
-override, a rebuilt watchdog, and rate limiting. Don't grow this script into
-that without going through those gates first.
+streaming) — that is a separate, larger step, gated on a verified transmitter
+mode-switch override, a rebuilt watchdog, and rate limiting. Don't grow this
+script into that without going through those gates first.
 
 MOTOR NUMBERING (read this before changing --motor):
   MOTOR_TEST_ORDER_DEFAULT numbers motors by TEST SEQUENCE — clockwise from

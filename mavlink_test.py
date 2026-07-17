@@ -8,7 +8,7 @@ prints armed state, flight mode, and link health at 1 Hz while sending this
 Pi's own presence-only heartbeat back.
 
 Sends no command that can arm, disarm, change flight mode, or move the
-vehicle — see mavlink/connection.py and .claude/CLAUDE.md ("Safety Rules").
+vehicle — see mavlink/connection.py.
 
 Ctrl+C to stop.
 """

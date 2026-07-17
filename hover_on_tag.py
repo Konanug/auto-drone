@@ -30,7 +30,7 @@ attitude/altitude integrators wind up against the restraint and RAMP THE
 MOTORS TO MAXIMUM. Both were observed on this airframe. Validate in SITL,
 then in the air. There is no bench configuration that works.
 
-WHO DOES WHAT (safety design — see .claude/CLAUDE.md "Safety Rules"):
+WHO DOES WHAT (the safety design — read this before changing anything):
 - The PILOT arms via the transmitter and engages/disengages this controller
   by flipping the TX flight-mode switch into/out of GUIDED_NOGPS. That switch
   must be configured and TESTED in Mission Planner before any armed run.

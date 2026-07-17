@@ -6,9 +6,8 @@ vehicle — the only outgoing message is this Pi's own heartbeat, which is
 pure presence-announcement and carries no command authority.
 
 Adding command authority (e.g. SET_ATTITUDE_TARGET for GUIDED_NOGPS control)
-is a deliberate future step requiring explicit sign-off — see the "Control
-Architecture" section in .claude/CLAUDE.md for the intended design and the
-safety gates required before that lands.
+is a deliberate future step requiring explicit sign-off — see hover_on_tag.py
+for that design and the safety gates around it.
 """
 import time
 

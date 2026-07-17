@@ -53,7 +53,7 @@ MAX_VIEW_ANGLE_DEG = 60.0 # AprilTag cannot be decoded edge-on past ~60 deg of s
 LINK_STALE_S = 1.5
 
 # Parameters copied from the real flight controller so SITL's control layer
-# behaves like the real one (see CLAUDE.md). Anything our gains couple to.
+# behaves like the real one. These are the params our gains couple to.
 REAL_FC_PARAMS = {
     "GUID_OPTIONS": 0,        # thrust = climb rate, 0.5 = hold altitude
     "WPNAV_SPEED_UP": 250,    # 2.5 m/s — sets the thrust->climb-rate scale
