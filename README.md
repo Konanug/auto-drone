@@ -1,85 +1,145 @@
 # Autonomous Drone
 
-A 7-inch quadcopter that finds an AprilTag with an onboard camera and holds
-station relative to it — a metre back, centred, square to its face. There's no
-GPS involved; position comes entirely from the camera.
+A 7-inch quadcopter that uses an onboard camera to locate an AprilTag and hold position relative to it—approximately one metre away, centred, and square to the tag’s face.
+
+The system does not rely on GPS for AprilTag-relative positioning. Position information is derived entirely from the onboard camera. The Raspberry Pi can also perform OCR and other computer-vision tasks, provided they are not computationally demanding enough to interfere with the AprilTag tracking loop.
 
 <p align="center">
-  <img src="assets/drone-top.jpg" width="46%" alt="Top view of the quad, showing the Raspberry Pi and wiring">
-  <img src="assets/drone-side.jpg" width="46%" alt="Side view, showing the camera and flight controller stack">
+  <img src="assets/drone-top.jpg" width="46%" alt="Top view of the quadcopter, showing the Raspberry Pi and wiring">
+  <img src="assets/drone-side.jpg" width="46%" alt="Side view of the quadcopter, showing the camera and flight-controller stack">
 </p>
 
-## How it works
+## How It Works
 
-A Raspberry Pi handles the vision and the outer control loop. It detects the
-tag, converts the tag's pose into the drone's body frame, and works out where
-the drone *should* be — the point one metre out along the tag's normal. A PD
-controller drives roll and pitch toward that point, yaw independently keeps the
-nose on the tag, and thrust holds the tag vertically centred.
+A Raspberry Pi handles the vision system and outer control loop. It detects the AprilTag, converts the tag’s pose into the drone’s body frame, and calculates where the drone should be positioned: one metre outward along the tag’s normal vector.
 
-The result is streamed to ArduPilot as attitude targets over MAVLink at 20 Hz,
-in `GUIDED_NOGPS`. ArduPilot keeps everything that matters for safety:
-stabilisation, motor mixing, arming, and its own failsafes. The Pi never arms
-the vehicle and never talks to the motors. The pilot engages and disengages the
-controller with a switch on the transmitter, which is also the emergency exit.
+A PD controller commands roll and pitch to move the drone toward that target position. Yaw is controlled independently to keep the nose pointed toward the tag, while thrust keeps the tag vertically centred in the camera frame.
 
-Losing the tag doesn't cause a guess or a search — the controller falls back to
-a level, altitude-holding hover and says so.
+The Raspberry Pi can concurrently perform other relatively low-cost computer-vision tasks. These tasks must remain computationally limited so that they do not interfere with the AprilTag tracking loop. Given the drone’s high thrust-to-weight ratio, a more powerful single-board computer, such as one from the NVIDIA Jetson Nano series, could be considered in the future.
+
+The resulting commands are streamed to ArduPilot as attitude targets over MAVLink at 20 Hz while the flight controller operates in `GUIDED_NOGPS`.
+
+ArduPilot remains responsible for all safety-critical flight functions, including:
+
+* Attitude stabilisation
+* Motor mixing
+* Arming
+* Flight-controller failsafes
+
+The Raspberry Pi never arms the vehicle and never communicates directly with the motors.
+
+The pilot engages and disengages the vision controller using a switch on the transmitter. This switch also acts as the emergency exit from autonomous control.
+
+If the tag is lost, the controller does not attempt to estimate its position or begin searching. Instead, it falls back to a level, altitude-holding hover and reports that the tag has been lost.
+
+## Future Ambitions
+
+Future implementations may add OCR capability for warehouse environments, including operation in dark or poorly lit areas.
+
+Detected text could be stored in an Excel spreadsheet for applications such as autonomous inventory management and inspection in difficult-to-reach warehouse locations.
+
+This would most likely require:
+
+* A mechanical camera-mounting system that further reduces vibration
+* A mounted light or flashlight for illuminating dark areas
+* Additional computational capacity if OCR or other vision workloads interfere with AprilTag tracking
 
 ## Hardware
 
-|  |  |
-|---|---|
-| Airframe | 7" quad, ~816 g, 6S |
-| Flight controller | SpeedyBee F405 V3, ArduCopter 4.6 |
-| Companion computer | Raspberry Pi 4 |
-| Camera | Camera Module 3 (IMX708) — 2 ms shutter, focus fixed at 1 m |
-| Radio | ELRS |
-| Link | Pi ↔ FC over UART, MAVLink2 at 921600 |
+| Component                | Specification                                                          |
+| ------------------------ | ---------------------------------------------------------------------- |
+| Airframe                 | 7-inch quadcopter, approximately 816 g, 6S                             |
+| Flight controller        | SpeedyBee F405 V3, ArduCopter 4.6                                      |
+| Companion computer       | Raspberry Pi 4                                                         |
+| Camera                   | Raspberry Pi Camera Module 3, IMX708, 2 ms shutter, focus fixed at 1 m |
+| Radio                    | ELRS                                                                   |
+| Communication link       | Raspberry Pi ↔ flight controller over UART, MAVLink 2 at 921600 baud   |
+| GPS and compass          | HGLRC M100 Pro GPS with QMC5883L compass                               |
+| Custom 3D-CAD components | Raspberry Pi mount, camera mount, and GPS mount                        |
 
-`GUIDED_NOGPS` isn't in the stock firmware for this board — it's compiled out to
-save flash — so the FC runs a custom build from ArduPilot's build server.
+`GUIDED_NOGPS` is not included in the stock ArduPilot firmware for this flight controller because it is compiled out to conserve flash storage. The flight controller therefore runs a custom firmware build produced through ArduPilot’s build server.
 
-## Status
+## Current Status
 
-Vision, the MAVLink link, and the control path all work and are validated. The
-controller converges in ArduPilot SITL from 4–6 m out, in both skew directions,
-settling within a few centimetres without dropping a frame.
+The vision system, MAVLink connection, and control path are operational and validated.
 
-It hasn't flown autonomously yet. What's left is a first engaged flight: hover
-manually, flip the switch, and be ready to flip it back.
+In ArduPilot SITL, the controller successfully converges toward a virtual AprilTag from distances of approximately 4–6 metres and from both horizontal skew directions. It settles within a few centimetres of the target position without dropping a frame.
 
-## Running it
+On the physical quadcopter, AprilTag detection currently operates successfully for approximately 80% of the runtime.
 
-Nothing needs a display — every tool streams an annotated view to
-`http://<pi-ip>:8080/stream`.
+The primary remaining issue is mechanical vibration, which creates a visible “jello” effect in the camera image. This vibration must be addressed through improvements to the camera mounting system and mechanical isolation.
+
+## Running the Project
+
+No physical display is required. Each tool streams an annotated camera view to:
+
+```text
+http://<pi-ip>:8080/stream
+```
+
+### Hardware Tests
 
 ```bash
-python3 vision_test.py             # camera and tag detection, no MAVLink
-python3 mavlink_test.py            # link check, no camera
-python3 camera_tune.py             # sweep exposure, measure detection and jitter
-python3 hover_on_tag.py --dry-run  # controller: computes and displays, sends nothing
+python3 vision_test.py
 ```
 
-Against the simulator:
+Tests the camera and AprilTag detection without using MAVLink.
 
 ```bash
-python3 sitl_validate.py   # confirms the FC ingests targets, and every sign convention
-python3 sitl_tag_sim.py    # closed loop against a virtual tag
+python3 mavlink_test.py
 ```
 
-Camera calibration, if you're rebuilding this: print `assets/calibration_chessboard.png`,
-measure a square, set `SQUARE_SIZE_M`, then run the two scripts in `calibration/`.
+Tests the MAVLink connection without using the camera.
 
-## Layout
-
+```bash
+python3 camera_tune.py
 ```
-vision/       detection, pose, velocity, camera setup, spike filtering
-mavlink/      link to the flight controller
-streaming/    MJPEG server
-calibration/  camera calibration
+
+Sweeps camera exposure settings and measures detection reliability and pose jitter.
+
+```bash
+python3 hover_on_tag.py --dry-run
+```
+
+Runs the controller, calculates commands, and displays the output without sending commands to the flight controller.
+
+### Simulator Tests
+
+```bash
+python3 sitl_validate.py
+```
+
+Confirms that the flight controller receives and processes attitude targets correctly and validates all control sign conventions.
+
+```bash
+python3 sitl_tag_sim.py
+```
+
+Runs the closed-loop controller against a virtual AprilTag in ArduPilot SITL.
+
+## Camera Calibration
+
+The following chessboard image is used for camera calibration:
+
+```text
+assets/calibration_chessboard.png
+```
+
+Camera calibration is performed using the two scripts located in the `calibration/` directory.
+
+## Project Layout
+
+```text
+vision/       AprilTag detection, pose estimation, velocity estimation,
+              camera configuration, and spike filtering
+
+mavlink/      Communication link to the flight controller
+
+streaming/    MJPEG streaming server
+
+calibration/  Camera-calibration scripts
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
