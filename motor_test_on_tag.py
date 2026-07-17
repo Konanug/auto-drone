@@ -1,41 +1,4 @@
 #!/usr/bin/env python3
-"""
-motor_test_on_tag.py — bench validation of Pi -> FC command authority.
-
-The first time an AprilTag is (re)acquired, sends one ArduPilot
-MAV_CMD_DO_MOTOR_TEST command to spin a single motor at low throttle for a
-few seconds. While the tag stays continuously in frame, nothing further is
-sent; losing and re-detecting the tag arms the trigger again exactly once.
-
-This is the first script in this project with command authority over the
-vehicle. MAV_CMD_DO_MOTOR_TEST is ArduPilot's own bench-test command: it only
-runs while disarmed, spins exactly one motor for a bounded duration, and
-needs no flight-mode change or arming. It is NOT the same code path as
-GUIDED_NOGPS + SET_ATTITUDE_TARGET (continuous real-time attitude
-streaming) — that is a separate, larger step, gated on a verified transmitter
-mode-switch override, a rebuilt watchdog, and rate limiting. Don't grow this
-script into that without going through those gates first.
-
-MOTOR NUMBERING (read this before changing --motor):
-  MOTOR_TEST_ORDER_DEFAULT numbers motors by TEST SEQUENCE — clockwise from
-  front-right — NOT by ESC output channel. For a quad-X:
-      1 = front-right   2 = back-right   3 = back-left   4 = front-left
-  These match Mission Planner's "Test motor A/B/C/D" buttons (A=1..D=4), NOT
-  the "Motor Number" output labels shown next to them. Mission Planner may
-  label the back-right motor's output as "Motor Number 4", but the value to
-  pass here for back-right is 2 (Test B). Confirm on the Motor Test tab first.
-
-SAFETY:
-- Propellers must be removed before running this.
-- ArduPilot's own motor-test interlocks (disarmed state, safety switch)
-  still apply; this script does not and cannot bypass them.
-
-The MJPEG stream (same viewer as vision_test.py) is for visually confirming
-tag detection and framing only — it plays no part in the trigger logic.
-
-Browser: http://<pi-ip>:<port>/stream
-Ctrl+C to stop.
-"""
 import argparse
 import time
 
