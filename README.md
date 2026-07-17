@@ -30,7 +30,7 @@ a level, altitude-holding hover and says so.
 
 |  |  |
 |---|---|
-| Airframe | 7" quad, 816 g, 6S |
+| Airframe | 7" quad, ~816 g, 6S |
 | Flight controller | SpeedyBee F405 V3, ArduCopter 4.6 |
 | Companion computer | Raspberry Pi 4 |
 | Camera | Camera Module 3 (IMX708) — 2 ms shutter, focus fixed at 1 m |
@@ -48,31 +48,6 @@ settling within a few centimetres without dropping a frame.
 
 It hasn't flown autonomously yet. What's left is a first engaged flight: hover
 manually, flip the switch, and be ready to flip it back.
-
-## Things that cost a lot of time
-
-- **ArduCopter silently drops `SET_ATTITUDE_TARGET` if the type_mask mixes
-  ignored and supplied body rates.** No error, no NAK — the message just
-  disappears. Every command was being thrown away.
-- **The attitude quaternion's yaw is an absolute heading, not an offset.**
-  Sending yaw = 0 politely asks the drone to turn and face north.
-- **None of this can be tested on a bench.** ArduCopter ignores attitude targets
-  while it believes it's landed, and clamping the drone down is worse — the
-  controllers wind up against the restraint and drive the motors to full. SITL
-  is the only honest way to check it before flying.
-- **Tilt commands acceleration while you're controlling position** — a double
-  integrator, which no amount of proportional gain will stabilise. It flew
-  straight through the tag until velocity damping went in.
-- **The controller asks less of the airframe than the pilot does.** It commands
-  at most 5° of tilt, ramped at 10°/s; a pilot in Stabilize demands 30°
-  instantly. Detuning the rate loop 17× low or 6.7× high in SITL still tracked
-  those gentle commands within 1°. So rather than gate on AUTOTUNE, the
-  controller measures whether the flight controller actually achieves the
-  attitude it's given, and says so on the overlay.
-- **Detection was failing in flight because the shutter was at 20 ms.** The
-  props vibrate around 65–100 Hz, so every frame smeared across one or two full
-  cycles. A 2 ms shutter and more light fixed it; the sensor has plenty of gain
-  to spare, and tag detection tolerates noise far better than blur.
 
 ## Running it
 
