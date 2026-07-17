@@ -1,40 +1,8 @@
 #!/usr/bin/env python3
-"""
-sitl_tag_sim.py — closed-loop tag-following simulation, for tuning the gains.
 
-Places a VIRTUAL AprilTag in the SITL world, and every frame synthesises the
-detection the real camera would produce from the simulated drone's actual
-position and attitude. That synthetic detection is fed through
-hover_on_tag.compute_commands() — the REAL control law, not a copy — and the
-resulting attitude target is streamed to the simulated FC.
 
-So this closes the whole loop: vision -> control law -> FC -> vehicle motion ->
-new vision. It answers the questions the axis-by-axis test cannot:
-  - does it CONVERGE on the tag (--distance, centred, square-on)?
-  - does it OSCILLATE, overshoot, or diverge?
-  - are the gains in the right ballpark?
+# !!! SITL ONLY !!! Arms and flies. Refuses to run against a serial device.
 
-WHY THE GAINS TRANSFER TO THE REAL DRONE (mostly):
-We command angles and a climb rate, not motor outputs, and ArduPilot's inner
-loop absorbs the airframe. Lateral accel from a bank angle is a = g*tan(roll)
-— pure physics, identical on any multirotor. And thrust->climb-rate uses
-WPNAV_SPEED_UP, which is 250 on both SITL and the real FC. The real drone is
-punchier (816 g, ~7:1 thrust/weight) than SITL's default quad, so gains tuned
-here come out CONSERVATIVE on the real vehicle — the safe direction to err.
-
-NOT MODELLED: drag, wind, camera noise/latency, rolling shutter. Treat the
-output as "gains of the right order that converge cleanly", not final numbers.
-
-!!! SITL ONLY !!! Arms and flies. Refuses to run against a serial device.
-
-Usage:
-    # terminal 1
-    cd /tmp/sitl_run && ~/ardupilot/build/sitl/bin/arducopter --model quad \
-        --defaults ~/ardupilot/Tools/autotest/default_params/copter.parm
-    # terminal 2
-    python3 sitl_tag_sim.py                    # uses hover_on_tag's gains
-    python3 sitl_tag_sim.py --kp-pitch -3.0    # override one gain to tune
-"""
 import argparse
 import math
 import sys
