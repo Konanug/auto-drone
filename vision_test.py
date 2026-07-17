@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""
-Cam_Test — vision-only validation harness.
 
-Runs AprilTag detection + pose + velocity estimation with NO MAVLink
-involvement at all — this is for validating the Raspberry Pi / camera side
-of the pipeline (position accuracy, jitter, tag velocity while moving the
-tag by hand) before any flight-controller integration exists.
-
-Overlays a center crosshair and an offset line so you can see, live, how far
-the tag is from frame-center — this is the signal a future follow-controller
-would act on, so it's worth confirming it looks right before anything acts
-on it.
-
-Browser: http://<pi-ip>:<port>/stream
-Ctrl+C to stop.
-
-Suggested validation workflow:
-  1. Print the tag (assets/apriltag_print.pdf) and mount it upright.
-  2. Place it at known distances (0.5m, 1.0m, 2.0m, ...) directly in front
-     of the camera and compare against the printed distance_m.
-  3. Move the tag off-center and confirm the offset line/numbers point the
-     right way (right/down offsets should match which way you moved it).
-  4. Wave the tag side to side and watch v_right track the motion; hold it
-     still and confirm velocity settles back near zero.
-  5. Pass --log to record a CSV for offline analysis of jitter/accuracy.
-"""
 import argparse
 import csv
 import time
