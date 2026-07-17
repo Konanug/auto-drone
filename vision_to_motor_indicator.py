@@ -1,41 +1,4 @@
 #!/usr/bin/env python3
-"""
-vision_to_motor_indicator.py — visible proof that vision directives reach the FC.
-
-Maps AprilTag offset thresholds to individual motor spins, so you can SEE the
-flight controller acting on vision-derived directives in real time:
-
-    too far from tag   -> motor 1 spins   (front-right)
-    too far left       -> motor 2 spins   (back-right)
-    too far right      -> motor 3 spins   (back-left)
-    too close to tag   -> motor 4 spins   (front-left)
-
-All at a fixed low throttle (default 4%). This is a DETECTION INDICATOR, not a
-controller — nothing here closes a control loop or moves the vehicle in a
-meaningful way; each spin is ArduPilot's own bench MAV_CMD_DO_MOTOR_TEST, which
-only runs while disarmed and spins one motor for a bounded time.
-
-Motor numbers are MOTOR_TEST_ORDER_DEFAULT test-SEQUENCE positions (= Mission
-Planner's Test A/B/C/D buttons), NOT ESC output-channel labels. See
-motor_test_on_tag.py for the full explanation of that distinction.
-
-CONCURRENCY NOTE: ArduPilot runs only ONE motor test at a time — a new
-DO_MOTOR_TEST overrides the previous. When two conditions are active at once
-(one distance + one lateral), this script round-robins between their motors
-fast enough that both visibly spin; they are not truly simultaneous.
-
-SAFETY:
-- Propellers must be removed before running this.
-- ArduPilot's own motor-test interlocks (disarmed, safety switch) still apply.
-- Use --dry-run to verify the vision->condition logic with NO motor commands
-  sent at all, before letting it spin anything.
-
-The MJPEG stream (same viewer as vision_test.py) is for visually confirming tag
-framing only — it plays no part in the logic.
-
-Browser: http://<pi-ip>:<port>/stream
-Ctrl+C to stop.
-"""
 import argparse
 import time
 
