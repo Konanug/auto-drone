@@ -56,9 +56,19 @@ climbs. Do not "fix" a sign without re-running sitl_validate.py. Note KD_ROLL
 is POSITIVE while KD_PITCH is negative; that is deliberate, not a typo (see
 its comment).
 
-PREREQUISITE, NOT YET DONE: the FC's inner loop (ATC_RAT_*) is still on stock
-defaults aimed at a ~10" copter. AUTOTUNE the real airframe first — this outer
-loop only commands angles and trusts ArduPilot to deliver them.
+ON AUTOTUNE: recommended, but not a gate for this controller. It commands at
+most MAX_ROLL/PITCH_DEG (5 deg), slew-limited to 10 deg/s, while a pilot in
+Stabilize routinely demands ANGLE_MAX (30 deg) instantly — so this asks LESS of
+the inner loop than every manual flight already does. Measured in SITL: even a
+rate loop detuned 17x low or 6.7x high still tracked these gentle commands
+within 1 deg. The real prerequisite is a stable manual hover in AltHold, which
+also lets MOT_HOVER_LEARN find the true hover throttle that "thrust = 0.5"
+depends on.
+
+What used to justify the AUTOTUNE gate was that this loop ASSUMED the FC
+achieves the attitude it is told. It no longer assumes: InnerLoopMonitor
+compares the FC's own target against its measured attitude every tick and says
+so on the overlay. Tune for performance, not to satisfy this script.
 
 Browser: http://<pi-ip>:<port>/stream
 Ctrl+C to stop.
@@ -160,6 +170,60 @@ KD_THRUST = -0.16   # damps v_down  (m/s -> thrust)
 SEND_HZ = 20.0
 MAX_ANGLE_STEP_DEG = 0.5     # roll/pitch: 0.5°/tick @ 20 Hz = 10°/s max slew
 MAX_THRUST_STEP = 0.005
+
+# ── Inner-loop tracking monitor ───────────────────────────────────────────────
+# This controller commands ATTITUDE ANGLES and trusts ArduPilot's inner loop
+# (ATC_RAT_*) to actually achieve them. That trust used to be an assumption —
+# hence the old "AUTOTUNE first" gate. It is now MEASURED: the FC reports both
+# what it is targeting (ATTITUDE_TARGET) and what it achieved (ATTITUDE), and
+# the gap between them IS the inner loop's tracking error.
+#
+# Worth knowing why this is a soft check and not a hard gate: we command at
+# most MAX_ROLL/PITCH_DEG (5 deg), slew-limited to 10 deg/s, while a pilot in
+# Stabilize routinely commands ANGLE_MAX (30 deg) instantly. So this asks LESS
+# of the inner loop than every manual flight already does. A drone that hovers
+# steadily by hand has an inner loop good enough for this; the monitor exists
+# to catch the case where it doesn't, rather than to assume either way.
+TRACK_ERR_WARN_DEG = 3.0   # sustained target-vs-achieved gap that means trouble
+TRACK_WINDOW = 40          # samples (~2 s at 20 Hz) — ignore transient lag
+
+
+class InnerLoopMonitor:
+    """Rolling mean |commanded attitude - achieved attitude|, in degrees.
+
+    Averaged over a window because a real inner loop always lags a step command
+    briefly; only a SUSTAINED gap indicates a badly tuned loop. Oscillation
+    shows up here too — it inflates the mean error rather than cancelling.
+    """
+
+    def __init__(self, window=TRACK_WINDOW):
+        self.window = window
+        self._errs = []
+
+    def update(self, target_rp, achieved_rp):
+        if target_rp is None or achieved_rp is None:
+            return
+        err = max(abs(target_rp[0] - achieved_rp[0]),
+                  abs(target_rp[1] - achieved_rp[1]))
+        self._errs.append(err)
+        if len(self._errs) > self.window:
+            self._errs.pop(0)
+
+    @property
+    def error_deg(self):
+        return sum(self._errs) / len(self._errs) if self._errs else float("nan")
+
+    @property
+    def ok(self):
+        e = self.error_deg
+        return True if e != e else e < TRACK_ERR_WARN_DEG   # nan => no data yet
+
+    def describe(self):
+        e = self.error_deg
+        if e != e:
+            return "n/a"
+        return f"{'ok' if e < TRACK_ERR_WARN_DEG else 'POOR'} {e:.1f} deg"
+
 
 # ── Freshness watchdog ─────────────────────────────────────────────────────────
 TAG_STALE_S = 0.5       # no detection for this long => TAG_LOST
@@ -329,6 +393,7 @@ def run(args):
 
     print(f"[vision] detect_scale={args.detect_scale}  preprocessing: {prep.describe()}")
     velocity = VelocityEstimator()   # supplies the D term — see KD_* above
+    inner = InnerLoopMonitor()       # is the FC achieving what we command?
 
     # Jello/vibration can corrupt one frame's corners into a pose metres off;
     # the D term would turn that single-frame spike into a pinned attitude
@@ -438,6 +503,10 @@ def run(args):
                     fc_yaw_rad = a.yaw
                     fc_att = (math.degrees(a.roll), math.degrees(a.pitch),
                               math.degrees(a.yaw))
+                # Inner-loop health: only meaningful while we are actually
+                # commanding, i.e. the FC's target came from us.
+                if engaged and fc_echo is not None and fc_att is not None:
+                    inner.update(fc_echo[:2], fc_att[:2])
 
             # We build the yaw target as (FC's current heading + correction), so
             # a stale ATTITUDE means we do not know the current heading. Sending
@@ -514,12 +583,25 @@ def run(args):
                                            f"y{fc_att[2]:+.0f}"))
                 else:
                     rows.append(("fc imu", "-- none --"))
+                rows.append(("inner", inner.describe()))
             draw_legend(frame, f"hover_on_tag  [{state}]", rows)
             if state == "TAG_LOST":
                 cv2.putText(frame, "TAG LOST - HOLDING NEUTRAL HOVER", (10, 40),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            if engaged and not inner.ok:
+                # The FC is not achieving the attitude it is being told to hold.
+                # We do NOT auto-disengage: commanding neutral still relies on
+                # the same inner loop, so it would not help. The pilot's switch
+                # is the fix — say so, loudly.
+                cv2.putText(frame, f"INNER LOOP NOT TRACKING ({inner.error_deg:.1f} deg)"
+                                   " - CONSIDER AUTOTUNE",
+                            (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
             if now - last_print >= 0.1:  # 10 Hz
+                if engaged and not inner.ok:
+                    print(f"[WARN] inner loop not tracking: mean |target-achieved| "
+                          f"= {inner.error_deg:.1f} deg. The FC is not holding the "
+                          f"attitude it is told to. Take over and run AUTOTUNE.")
                 if status is not None:
                     fc_str = (f"armed={'Y' if status['armed'] else 'N'} "
                               f"mode={status['mode']} | ")

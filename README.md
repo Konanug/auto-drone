@@ -46,9 +46,8 @@ Vision, the MAVLink link, and the control path all work and are validated. The
 controller converges in ArduPilot SITL from 4–6 m out, in both skew directions,
 settling within a few centimetres without dropping a frame.
 
-It hasn't flown autonomously yet. The airframe is still on stock rate PIDs aimed
-at a larger copter, and that inner loop needs AUTOTUNE before the outer loop can
-be trusted in the air.
+It hasn't flown autonomously yet. What's left is a first engaged flight: hover
+manually, flip the switch, and be ready to flip it back.
 
 ## Things that cost a lot of time
 
@@ -64,6 +63,12 @@ be trusted in the air.
 - **Tilt commands acceleration while you're controlling position** — a double
   integrator, which no amount of proportional gain will stabilise. It flew
   straight through the tag until velocity damping went in.
+- **The controller asks less of the airframe than the pilot does.** It commands
+  at most 5° of tilt, ramped at 10°/s; a pilot in Stabilize demands 30°
+  instantly. Detuning the rate loop 17× low or 6.7× high in SITL still tracked
+  those gentle commands within 1°. So rather than gate on AUTOTUNE, the
+  controller measures whether the flight controller actually achieves the
+  attitude it's given, and says so on the overlay.
 - **Detection was failing in flight because the shutter was at 20 ms.** The
   props vibrate around 65–100 Hz, so every frame smeared across one or two full
   cycles. A 2 ms shutter and more light fixed it; the sensor has plenty of gain
