@@ -132,16 +132,14 @@ def corner_drift(corner_history):
     return float(np.linalg.norm(centres[-1] - centres[0]))
 
 
-def measure(picam2, detector, seconds, flip=True):
+def measure(picam2, detector, seconds):
     """Collect detection stats for one camera setting."""
     frames = hits = 0
     sharp_sum = bright_sum = 0.0
     corners = []
     t0 = time.monotonic()
     while time.monotonic() - t0 < seconds:
-        frame = picam2.capture_array()
-        if flip:
-            frame = cv2.flip(frame, -1)
+        frame = picam2.capture_array()   # 180° flip happens in hardware now
         frames += 1
         sharp_sum += cam.sharpness(frame)
         bright_sum += cam.brightness(frame)
@@ -254,8 +252,7 @@ def run_live(args):
     last_print = 0.0
     try:
         while True:
-            frame = picam2.capture_array()
-            frame = cv2.flip(frame, -1)
+            frame = picam2.capture_array()   # 180° flip happens in hardware now
             frame = prep.apply(frame)      # detect on exactly what we display
             frames += 1
             dets = detector.detect(frame)

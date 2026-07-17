@@ -119,11 +119,11 @@ def main():
         while saved < args.count:
             frame = picam2.capture_array()
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            # 180deg flip — the camera is mounted upside down and EVERY
-            # operational script flips before detecting. Calibration must run on
-            # the same flipped frames, or the principal point (and tangential
-            # distortion sign) won't match how the intrinsics are actually used.
-            frame = cv2.flip(frame, -1)
+            # The 180deg flip (camera mounted upside down) now happens in
+            # hardware for every consumer (vision/camera.py Transform), so
+            # calibration still sees exactly the frames operational scripts
+            # see — the principal point and tangential distortion sign match
+            # how the intrinsics are actually used.
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             found, corners = cv2.findChessboardCorners(gray, CHESSBOARD_SIZE, flags)

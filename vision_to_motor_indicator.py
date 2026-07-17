@@ -172,8 +172,7 @@ def run(args):
 
     try:
         while True:
-            frame = picam2.capture_array()
-            frame = cv2.flip(frame, -1)  # 180 deg - camera is upside down
+            frame = picam2.capture_array()   # 180° flip happens in hardware
             frame = prep.apply(frame)    # what we detect on IS what we stream
             if fc_link is not None:
                 fc_link.poll()

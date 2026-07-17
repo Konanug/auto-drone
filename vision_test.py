@@ -91,8 +91,7 @@ def run(args):
 
     try:
         while True:
-            frame = picam2.capture_array()
-            frame = cv2.flip(frame, -1)  # 180° — camera is upside down
+            frame = picam2.capture_array()   # 180° flip happens in hardware
             frame = prep.apply(frame)    # what we detect on IS what we stream
 
             detections = detector.detect(frame)
