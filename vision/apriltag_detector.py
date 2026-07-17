@@ -43,24 +43,82 @@ def load_intrinsics(path=DEFAULT_INTRINSICS_PATH):
     return _FALLBACK_CAMERA_MATRIX, _FALLBACK_DIST_COEFFS
 
 
+def _build_params():
+    """Detector parameters tuned for a blurry, vibrating, high-gain image.
+
+    OpenCV's defaults leave cornerRefinementMethod at NONE, so corners land on
+    whole pixels — that is free pose jitter, and it costs almost nothing to fix.
+    The rest loosen the detector's assumptions about crisp geometry, because a
+    vibrating airframe does not produce crisp geometry.
+
+    NOTE what tuning CANNOT do: if motion blur exceeds the tag's BIT-CELL size
+    (tag_px / 8), the bits are physically destroyed and no parameter recovers
+    them. Benchmarked: at 2 m the tag is ~79 px, so cells are ~10 px, and a
+    17 px blur gives 0% detection on every configuration tried. Fix blur with a
+    shorter shutter (see vision/camera.py), not with detector settings.
+    """
+    p = cv2.aruco.DetectorParameters()
+    # Subpixel corners: the single cheapest accuracy win available.
+    p.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    p.cornerRefinementWinSize = 5
+    # Tolerate rounded/smeared corners rather than demanding sharp polygons.
+    p.polygonalApproxAccuracyRate = 0.06
+    # See the tag from further away.
+    p.minMarkerPerimeterRate = 0.02
+    # Accept more bit errors — a noisy high-gain frame is still decodable.
+    p.errorCorrectionRate = 0.8
+    return p
+
+
 class AprilTagDetector:
-    def __init__(self, tag_size_m=TAG_SIZE_M, intrinsics_path=DEFAULT_INTRINSICS_PATH):
+    """AprilTag detection + pose.
+
+    detect_scale exists because detection cost scales with PIXEL COUNT while
+    pose accuracy depends only on CORNER precision. On this Pi, detecting at
+    full 1280x720 costs ~71 ms — more than double the 33 ms budget for 30 fps,
+    which starved the whole control loop down to ~8 fps. So we detect on a
+    downscaled image (fast), then refine the corners back on the FULL-resolution
+    image with cornerSubPix (accurate, and cheap because it only looks at small
+    windows around four points). Pose is always computed with the full-res
+    intrinsics against full-res corner coordinates.
+    """
+
+    def __init__(self, tag_size_m=TAG_SIZE_M, intrinsics_path=DEFAULT_INTRINSICS_PATH,
+                 detect_scale=0.5):
         self.tag_size_m = tag_size_m
         self.camera_matrix, self.dist_coeffs = load_intrinsics(intrinsics_path)
+        self.detect_scale = float(detect_scale)
         dictionary = cv2.aruco.getPredefinedDictionary(TAG_FAMILY)
-        self.detector = cv2.aruco.ArucoDetector(dictionary, cv2.aruco.DetectorParameters())
+        self.detector = cv2.aruco.ArucoDetector(dictionary, _build_params())
+        self._subpix_criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+                                 30, 0.01)
 
     def detect(self, frame_bgr):
         """Detect tags in a BGR frame.
 
         Returns a list of dicts (one per tag), each with pose in both the
         camera frame and the ArduPilot FRD body frame. Empty list if no tag
-        is visible.
+        is visible. Corner coordinates are always in FULL-resolution pixels,
+        regardless of detect_scale.
         """
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self.detector.detectMarkers(gray)
-        if ids is None:
-            return []
+
+        s = self.detect_scale
+        if s < 0.999:
+            small = cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+            corners, ids, _ = self.detector.detectMarkers(small)
+            if ids is None:
+                return []
+            # Back to full-res coordinates, then recover the precision we gave
+            # up by refining against the full-res image.
+            corners = [c / s for c in corners]
+            for c in corners:
+                cv2.cornerSubPix(gray, c.reshape(-1, 1, 2), (5, 5), (-1, -1),
+                                 self._subpix_criteria)
+        else:
+            corners, ids, _ = self.detector.detectMarkers(gray)
+            if ids is None:
+                return []
 
         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
             corners, self.tag_size_m, self.camera_matrix, self.dist_coeffs

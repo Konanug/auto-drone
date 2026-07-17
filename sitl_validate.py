@@ -23,7 +23,7 @@ So we fly a SIMULATED copter and check, in flight:
 This script arms and flies the vehicle. It refuses to run against a serial
 device (a real flight controller) — see require_sitl(). Never point it at
 /dev/serial0. The Pi still never arms the real vehicle; that is the pilot's
-job via the transmitter (see .claude/CLAUDE.md "Safety Rules").
+job via the transmitter.
 
 Usage (with SITL running):
     sim_vehicle.py -v ArduCopter -f quad --no-mavproxy   # in ardupilot/

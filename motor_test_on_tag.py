@@ -12,10 +12,9 @@ vehicle. MAV_CMD_DO_MOTOR_TEST is ArduPilot's own bench-test command: it only
 runs while disarmed, spins exactly one motor for a bounded duration, and
 needs no flight-mode change or arming. It is NOT the same code path as
 GUIDED_NOGPS + SET_ATTITUDE_TARGET (continuous real-time attitude
-streaming) — that is a separate, larger step gated on the roadmap items in
-.claude/CLAUDE.md ("Control Architecture"): verified transmitter mode-switch
-override, a rebuilt watchdog, and rate limiting. Don't grow this script into
-that without going through those gates first.
+streaming) — that is a separate, larger step, gated on a verified transmitter
+mode-switch override, a rebuilt watchdog, and rate limiting. Don't grow this
+script into that without going through those gates first.
 
 MOTOR NUMBERING (read this before changing --motor):
   MOTOR_TEST_ORDER_DEFAULT numbers motors by TEST SEQUENCE — clockwise from
@@ -41,13 +40,15 @@ import argparse
 import time
 
 import cv2
-from picamera2 import Picamera2
 from pymavlink import mavutil
 
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
+from vision import preprocess as pre
 from vision.apriltag_detector import AprilTagDetector
 
+STREAM_INTERVAL_S = 1 / 12.0   # debug stream at ~12 fps, not 30
 TAG_LOSS_GRACE_S = 0.3  # tag must be absent this long before a re-detection counts as new
 
 
@@ -71,15 +72,13 @@ def send_motor_test(fc_link, motor_number, throttle_pct, duration_s):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": (1280, 720), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
-    detector = AprilTagDetector()
+    detector = AprilTagDetector(detect_scale=args.detect_scale)
+
+    prep = pre.Preprocessor(args)
+
+    print(f"[vision] detect_scale={args.detect_scale}  preprocessing: {prep.describe()}")
 
     fc_link = FlightControllerLink(device=args.mavlink_device, baud=args.mavlink_baud)
     fc_link.connect()
@@ -93,10 +92,11 @@ def run(args):
 
     print("Watching for AprilTag — Ctrl+C to stop.\n")
 
+    last_stream = 0.0
     try:
         while True:
-            frame = picam2.capture_array()
-            frame = cv2.flip(frame, -1)  # 180 deg - camera is upside down
+            frame = picam2.capture_array()   # 180° flip happens in hardware
+            frame = prep.apply(frame)    # what we detect on IS what we stream
             fc_link.poll()
 
             detections = detector.detect(frame)
@@ -115,9 +115,13 @@ def run(args):
             elif tag_present and (now - last_seen_time) > TAG_LOSS_GRACE_S:
                 tag_present = False
 
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if ok:
-                stream_buffer.push(buf.tobytes())
+            # Throttle the stream encode: it costs ~13 ms of a 33 ms frame budget
+            # and a human does not need 30 fps. Detection still runs every frame.
+            if now - last_stream >= STREAM_INTERVAL_S:
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    stream_buffer.push(buf.tobytes())
+                last_stream = now
 
     except KeyboardInterrupt:
         pass
@@ -129,6 +133,13 @@ def run(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
+    cam.add_camera_args(parser)
+    pre.add_preprocess_args(parser)
+    parser.add_argument("--detect-scale", type=float, default=0.5,
+                        help="Detect on a downscaled image (corners are still "
+                             "refined at full res, so accuracy is kept). 1.0 costs "
+                             "71 ms/frame on the Pi and starves the loop to ~8 fps; "
+                             "0.5 costs 17 ms. Default 0.5.")
     parser.add_argument("--motor", type=int, default=2,
                          help="Motor test-SEQUENCE position (not the ESC output number). "
                               "With MOTOR_TEST_ORDER_DEFAULT, ArduPilot numbers motors "

@@ -2,7 +2,7 @@
 """
 hover_on_tag.py — GUIDED_NOGPS visual-servo hover controller.
 
-Holds the drone hovering --distance metres (default 0.5) from the AprilTag,
+Holds the drone hovering --distance metres (default 1.0) from the AprilTag,
 centered on it and square to its face, by streaming SET_ATTITUDE_TARGET while
 ArduPilot is armed and in GUIDED_NOGPS.
 
@@ -30,7 +30,7 @@ attitude/altitude integrators wind up against the restraint and RAMP THE
 MOTORS TO MAXIMUM. Both were observed on this airframe. Validate in SITL,
 then in the air. There is no bench configuration that works.
 
-WHO DOES WHAT (safety design — see .claude/CLAUDE.md "Safety Rules"):
+WHO DOES WHAT (the safety design — read this before changing anything):
 - The PILOT arms via the transmitter and engages/disengages this controller
   by flipping the TX flight-mode switch into/out of GUIDED_NOGPS. That switch
   must be configured and TESTED in Mission Planner before any armed run.
@@ -69,14 +69,17 @@ import time
 
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 from pymavlink import mavutil
 
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
+from vision import preprocess as pre
 from vision.apriltag_detector import AprilTagDetector
+from vision.pose_filter import PoseGate
 from vision.velocity_estimator import VelocityEstimator
 
+STREAM_INTERVAL_S = 1 / 12.0   # debug stream at ~12 fps, not 30
 # ── Camera -> flight-controller mounting offset (measured) ────────────────────
 # Translation from the camera lens to the FC/vehicle center, in the FRD body
 # frame, metres. The tag position is measured by the camera; these shift it to
@@ -87,9 +90,14 @@ CAM_OFFSET_RIGHT_M = 0.0     # camera right of FC = positive
 CAM_OFFSET_DOWN_M = -0.030   # camera below FC = positive (ours is above => negative)
 
 # ── Controller gains / limits ─────────────────────────────────────────────────
-# TUNED IN SITL CLOSED-LOOP (sitl_tag_sim.py). Converges from a 4 m/+20 deg and
-# a 6 m/-35 deg start: distance err <0.08 m, lateral <0.01 m, vertical <0.05 m,
-# skew ~5 deg, zero frames lost. They are on the CONSERVATIVE side for the real
+# TUNED IN SITL CLOSED-LOOP (sitl_tag_sim.py), and RE-VALIDATED at the 1.0 m
+# setpoint. Converges from a 4 m/+20 deg and a 6 m/-35 deg start: distance err
+# <0.08 m, lateral <0.01 m, vertical <0.05 m, skew <3 deg, zero frames lost.
+#
+# The setpoint is NOT a free parameter. The goal point's lateral offset is
+# distance * sin(skew), so a LARGER --distance gives the squaring-up loop MORE
+# authority: moving 0.5 -> 1.0 m improved steady-state skew from 5.8 to 2.8 deg
+# on its own. Re-run sitl_tag_sim.py if you change --distance again. They are on the CONSERVATIVE side for the real
 # 816 g / ~7:1-thrust airframe, which is punchier than SITL's default quad.
 # Re-run sitl_tag_sim.py after changing any of them.
 
@@ -313,16 +321,23 @@ def is_engaged(status, link_healthy):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": tuple(args.resolution), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
-    detector = AprilTagDetector()
+    detector = AprilTagDetector(detect_scale=args.detect_scale)
+
+    prep = pre.Preprocessor(args)
+
+    print(f"[vision] detect_scale={args.detect_scale}  preprocessing: {prep.describe()}")
     velocity = VelocityEstimator()   # supplies the D term — see KD_* above
+
+    # Jello/vibration can corrupt one frame's corners into a pose metres off;
+    # the D term would turn that single-frame spike into a pinned attitude
+    # command. Gate implausible jumps BEFORE staleness/velocity see them —
+    # rejected garbage then decays into the normal TAG_LOST neutral hover.
+    pose_gate = None if args.no_pose_gate else PoseGate(args.pose_gate_max_mps)
+    print("[vision] pose gate: "
+          + ("OFF (diagnostics mode)" if pose_gate is None
+             else f"on, max plausible speed {args.pose_gate_max_mps:g} m/s"))
 
     fc_link = None
     conn = None
@@ -358,6 +373,8 @@ def run(args):
     last_send = 0.0
     last_heartbeat = 0.0
     last_print = 0.0
+    last_gate_print = 0.0
+    last_stream = 0.0
     last_detection_time = 0.0
     last_det = None
     last_vel = (0.0, 0.0, 0.0)
@@ -367,8 +384,8 @@ def run(args):
 
     try:
         while True:
-            frame = picam2.capture_array()
-            frame = cv2.flip(frame, -1)  # 180 deg - camera is upside down
+            frame = picam2.capture_array()   # 180° flip happens in hardware
+            frame = prep.apply(frame)    # what we detect on IS what we stream
             now = time.monotonic()
 
             if fc_link is not None:
@@ -378,7 +395,7 @@ def run(args):
                     last_heartbeat = now
 
             detections = detector.detect(frame)
-            if detections:
+            if detections and (pose_gate is None or pose_gate.accept(detections[0])):
                 last_det = detections[0]
                 last_detection_time = now
                 # Relative velocity -> the D term. The estimator resets itself
@@ -389,6 +406,15 @@ def run(args):
                 # Cheap outline only — no axes/vector, per compute budget.
                 pts = last_det["corners"].reshape(-1, 2).astype(np.int32)
                 cv2.polylines(frame, [pts], True, (0, 255, 0), 2)
+            elif detections:
+                # Pose gate rejected a spike: red outline, don't feed control.
+                pts = detections[0]["corners"].reshape(-1, 2).astype(np.int32)
+                cv2.polylines(frame, [pts], True, (0, 0, 255), 2)
+                if now - last_gate_print >= 1.0:
+                    print(f"[pose-gate] rejected implausible "
+                          f"{pose_gate.last_reject_speed:.1f} m/s jump "
+                          f"({pose_gate.rejected_count} total)")
+                    last_gate_print = now
 
             tag_fresh = (now - last_detection_time) <= TAG_STALE_S and last_det is not None
             status = fc_link.get_status() if fc_link is not None else None
@@ -515,9 +541,13 @@ def run(args):
                     print(f"[{state}] {fc_str}{tail}{echo_str}")
                 last_print = now
 
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if ok:
-                stream_buffer.push(buf.tobytes())
+            # Throttle the stream encode: it costs ~13 ms of a 33 ms frame budget
+            # and a human does not need 30 fps. Detection still runs every frame.
+            if now - last_stream >= STREAM_INTERVAL_S:
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    stream_buffer.push(buf.tobytes())
+                last_stream = now
 
     except KeyboardInterrupt:
         pass
@@ -536,9 +566,23 @@ def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--distance", type=float, default=0.5,
-                         help="Hover distance from the tag, metres. Default 0.5.")
-    parser.add_argument("--resolution", type=int, nargs=2, default=(1280, 720))
+    cam.add_camera_args(parser)
+    pre.add_preprocess_args(parser)
+    parser.add_argument("--detect-scale", type=float, default=0.5,
+                        help="Detect on a downscaled image (corners are still "
+                             "refined at full res, so accuracy is kept). 1.0 costs "
+                             "71 ms/frame on the Pi and starves the loop to ~8 fps; "
+                             "0.5 costs 17 ms. Default 0.5.")
+    parser.add_argument("--distance", type=float, default=1.0,
+                         help="Hover distance from the tag, metres. Default 1.0. "
+                              "NOTE: --focus-m should match this, and changing it "
+                              "changes the goal-point geometry — re-run sitl_tag_sim.py.")
+    parser.add_argument("--no-pose-gate", action="store_true",
+                         help="Disable the single-frame pose-spike gate "
+                              "(vision/pose_filter.py). Diagnostics only — the "
+                              "gate protects the D term from jello-corrupted poses.")
+    parser.add_argument("--pose-gate-max-mps", type=float, default=4.0,
+                         help="Pose gate's max plausible tag speed, m/s. Default 4.0.")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--dry-run", action="store_true",
                          help="No FC connection at all — vision + computed commands "

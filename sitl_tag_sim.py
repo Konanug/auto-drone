@@ -10,7 +10,7 @@ resulting attitude target is streamed to the simulated FC.
 
 So this closes the whole loop: vision -> control law -> FC -> vehicle motion ->
 new vision. It answers the questions the axis-by-axis test cannot:
-  - does it CONVERGE on the tag (0.5 m, centred, square-on)?
+  - does it CONVERGE on the tag (--distance, centred, square-on)?
   - does it OSCILLATE, overshoot, or diverge?
   - are the gains in the right ballpark?
 
@@ -53,7 +53,7 @@ MAX_VIEW_ANGLE_DEG = 60.0 # AprilTag cannot be decoded edge-on past ~60 deg of s
 LINK_STALE_S = 1.5
 
 # Parameters copied from the real flight controller so SITL's control layer
-# behaves like the real one (see CLAUDE.md). Anything our gains couple to.
+# behaves like the real one. These are the params our gains couple to.
 REAL_FC_PARAMS = {
     "GUID_OPTIONS": 0,        # thrust = climb rate, 0.5 = hold altitude
     "WPNAV_SPEED_UP": 250,    # 2.5 m/s — sets the thrust->climb-rate scale
@@ -322,7 +322,7 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--device", default="tcp:127.0.0.1:5760")
-    p.add_argument("--distance", type=float, default=0.5, help="hover setpoint (m)")
+    p.add_argument("--distance", type=float, default=1.0, help="hover setpoint (m)")
     p.add_argument("--duration", type=float, default=60.0)
     p.add_argument("--tag-range", type=float, default=4.0, help="initial distance to tag")
     p.add_argument("--tag-offset", type=float, default=1.0, help="initial lateral offset")

@@ -41,14 +41,16 @@ import time
 
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 from pymavlink import mavutil
 
 from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
 from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
+from vision import camera as cam
+from vision import preprocess as pre
 from vision.apriltag_detector import AprilTagDetector
 
 # Condition name -> motor test-sequence number (see module docstring)
+STREAM_INTERVAL_S = 1 / 12.0   # debug stream at ~12 fps, not 30
 MOTOR_FOR = {"far": 1, "left": 2, "right": 3, "close": 4}
 
 MOTOR_TEST_TIMEOUT_S = 3.0   # each spin self-expires after this on the FC (safety cap if the loop hangs/dies)
@@ -139,15 +141,13 @@ def active_conditions(det, image_center_px, args):
 
 
 def run(args):
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_video_configuration(
-        main={"size": tuple(args.resolution), "format": "RGB888"},
-        controls={"FrameRate": 30.0},
-        buffer_count=4,
-    ))
-    picam2.start()
+    picam2 = cam.open_camera(args)
 
-    detector = AprilTagDetector()
+    detector = AprilTagDetector(detect_scale=args.detect_scale)
+
+    prep = pre.Preprocessor(args)
+
+    print(f"[vision] detect_scale={args.detect_scale}  preprocessing: {prep.describe()}")
 
     fc_link = None
     conn = None
@@ -165,14 +165,15 @@ def run(args):
     frame_w, frame_h = args.resolution
     image_center_px = (frame_w / 2, frame_h / 2)
     last_print = 0.0
+    last_stream = 0.0
     last_refresh = 0.0
     rr_index = 0       # round-robin cursor across active motors
     last_motor = None  # motor currently commanded to spin (None = stopped)
 
     try:
         while True:
-            frame = picam2.capture_array()
-            frame = cv2.flip(frame, -1)  # 180 deg - camera is upside down
+            frame = picam2.capture_array()   # 180° flip happens in hardware
+            frame = prep.apply(frame)    # what we detect on IS what we stream
             if fc_link is not None:
                 fc_link.poll()
 
@@ -229,9 +230,13 @@ def run(args):
                     print("[indicator] no tag detected")
                 last_print = now
 
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if ok:
-                stream_buffer.push(buf.tobytes())
+            # Throttle the stream encode: it costs ~13 ms of a 33 ms frame budget
+            # and a human does not need 30 fps. Detection still runs every frame.
+            if now - last_stream >= STREAM_INTERVAL_S:
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    stream_buffer.push(buf.tobytes())
+                last_stream = now
 
     except KeyboardInterrupt:
         pass
@@ -249,6 +254,13 @@ def run(args):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    cam.add_camera_args(parser)
+    pre.add_preprocess_args(parser)
+    parser.add_argument("--detect-scale", type=float, default=0.5,
+                        help="Detect on a downscaled image (corners are still "
+                             "refined at full res, so accuracy is kept). 1.0 costs "
+                             "71 ms/frame on the Pi and starves the loop to ~8 fps; "
+                             "0.5 costs 17 ms. Default 0.5.")
     parser.add_argument("--far", type=float, default=1.5,
                          help="distance_m above this = too far (motor 1). Default 1.5.")
     parser.add_argument("--close", type=float, default=0.7,
@@ -257,7 +269,6 @@ def parse_args():
                          help="tag center this many px off-center triggers left/right "
                               "(motor 2/3). Default 120.")
     parser.add_argument("--throttle", type=float, default=4.0, help="Percent throttle.")
-    parser.add_argument("--resolution", type=int, nargs=2, default=(1280, 720))
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--dry-run", action="store_true",
                          help="Log condition/motor decisions without connecting to the FC "
