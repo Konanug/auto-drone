@@ -5,7 +5,7 @@ Generates a printable AprilTag (family: 36h11, ID 0).
 Run:
     python3 tools/generate_tag.py
 
-Output: assets/apriltag_36h11_id0.png
+Output: assets/print/apriltag-36h11-id0.png
 
 Printing instructions:
   - Open the PNG and print at exactly 16.8 cm × 16.8 cm (including white border).
@@ -21,7 +21,8 @@ FAMILY    = cv2.aruco.DICT_APRILTAG_36H11
 TAG_ID    = 0
 PX_SIZE   = 1000   # pixel size of the black pattern area
 BORDER_PX = 100    # white quiet-zone border (required by spec)
-OUT_FILE  = Path(__file__).resolve().parent.parent / "assets" / "apriltag_36h11_id0.png"
+OUT_FILE  = (Path(__file__).resolve().parent.parent
+             / "assets" / "print" / "apriltag-36h11-id0.png")
 
 dictionary = cv2.aruco.getPredefinedDictionary(FAMILY)
 tag        = cv2.aruco.generateImageMarker(dictionary, TAG_ID, PX_SIZE)
