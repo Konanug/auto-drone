@@ -82,8 +82,8 @@ commanded and achieved attitude in flight and warns when it exceeds 3° sustaine
 ```bash
 rpicam-hello --list-cameras     # camera detected
 ls -l /dev/serial0              # UART present
-python3 vision_test.py          # vision only
-python3 mavlink_test.py         # link only
+python3 scripts/vision_test.py   # vision only
+python3 scripts/mavlink_test.py  # link only
 ```
 
 Order matters for first flights: manual hover in Stabilize, then AltHold so

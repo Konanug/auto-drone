@@ -10,7 +10,7 @@
   <img alt="ArduPilot 4.6" src="https://img.shields.io/badge/ArduPilot-4.6-1F6FEB">
   <img alt="Raspberry Pi 4" src="https://img.shields.io/badge/Raspberry%20Pi-4-C51A4A">
   <img alt="Python 3.11" src="https://img.shields.io/badge/Python-3.11-3776AB">
-  <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-black">
+  <img alt="All rights reserved" src="https://img.shields.io/badge/licence-all%20rights%20reserved-black">
 </p>
 
 <p align="center">
@@ -194,33 +194,30 @@ See [Safety and limitations](docs/safety-and-limitations.md) for the full pictur
 ## Repository layout
 
 ```text
-hover_on_tag.py        Autonomous tag-hold controller — the main entrypoint
-sitl_validate.py       SITL: verifies the control path and every sign convention
-sitl_tag_sim.py        SITL: closed loop against a synthetic AprilTag
-camera_tune.py         Exposure sweep — measures detection rate and pose jitter
-vision_test.py         Vision only, no MAVLink
-mavlink_test.py        MAVLink only, no camera
-guided_echo_test.py    Confirms the FC ingests our attitude targets
-motor_test_on_tag.py   Bench: single motor spin on tag acquisition
-vision_to_motor_indicator.py   Bench: tag position mapped to motor spins
+hover_on_tag.py    Autonomous tag-hold controller — the main entrypoint
 
-vision/                Camera config, detection, pose estimation, filtering
-mavlink/               Flight-controller link
-streaming/             MJPEG server for the annotated view
-calibration/           Camera intrinsic calibration
-tools/                 Printable tag generation
-docs/                  Engineering documentation
-assets/                Photographs, diagrams, and printable targets
+vision/            Camera configuration, AprilTag detection, pose estimation,
+                   frame transforms, velocity estimation, pose-spike filtering
+mavlink/           Flight-controller link — heartbeat, telemetry, link health
+streaming/         MJPEG server for the annotated camera view
+
+sim/               ArduPilot SITL harnesses — control-path and closed-loop validation
+scripts/           Diagnostic and bench tools, each isolating one subsystem
+calibration/       Camera intrinsic calibration
+tools/             Printable tag generation
+
+docs/              Engineering documentation
+assets/            Photographs, diagrams, and printable targets
 ```
 
 Every tool is headless and streams its annotated view to `http://<pi-ip>:8080/stream`, so
 nothing needs a display on the vehicle.
 
 ```bash
-python3 vision_test.py           # camera + detection + pose, no MAVLink
-python3 mavlink_test.py          # link + telemetry, no camera
-python3 hover_on_tag.py --dry-run  # full controller, computes commands but sends nothing
-python3 sitl_tag_sim.py          # closed loop against a synthetic tag in ArduPilot SITL
+python3 scripts/vision_test.py      # camera + detection + pose, no MAVLink
+python3 scripts/mavlink_test.py     # link + telemetry, no camera
+python3 hover_on_tag.py --dry-run   # full controller, computes commands but sends nothing
+python3 sim/sitl_tag_sim.py         # closed loop against a synthetic tag in ArduPilot SITL
 ```
 
 Setup and flight-controller configuration are in
@@ -262,4 +259,5 @@ Built on [ArduPilot](https://ardupilot.org/), [MAVLink](https://mavlink.io/) via
 ArUco module, the [AprilTag](https://april.eecs.umich.edu/software/apriltag) 36h11 family,
 and [picamera2](https://github.com/raspberrypi/picamera2).
 
-Licensed under the MIT Licence — see [LICENSE](LICENSE).
+© 2026 Alan Yin. All rights reserved — see [LICENSE](LICENSE). Published so the work can be
+read and evaluated; please ask before reusing any part of it.

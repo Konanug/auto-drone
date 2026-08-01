@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 import argparse
+import sys
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 from pymavlink import mavutil
 
-from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
-from streaming.mjpeg_server import get_local_ip, start_mjpeg_server
-from vision import camera as cam
-from vision import preprocess as pre
-from vision.apriltag_detector import AprilTagDetector
+# This script lives in scripts/, so the project root is not on sys.path when
+# run as `python3 scripts/vision_to_motor_indicator.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from mavlink.connection import (  # noqa: E402
+    DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink)
+from streaming.mjpeg_server import get_local_ip, start_mjpeg_server  # noqa: E402
+from vision import camera as cam  # noqa: E402
+from vision import preprocess as pre  # noqa: E402
+from vision.apriltag_detector import AprilTagDetector  # noqa: E402
 
 # Condition name -> motor test-sequence number (see module docstring)
 STREAM_INTERVAL_S = 1 / 12.0   # debug stream at ~12 fps, not 30

@@ -7,11 +7,16 @@ import argparse
 import math
 import sys
 import time
+from pathlib import Path
 
 from pymavlink import mavutil
 
-import hover_on_tag as hot
-from vision.velocity_estimator import VelocityEstimator
+# This script lives in sim/, so the project root is not on sys.path when run
+# as `python3 sim/sitl_tag_sim.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import hover_on_tag as hot  # noqa: E402
+from vision.velocity_estimator import VelocityEstimator  # noqa: E402
 
 SEND_HZ = 20.0
 VISION_HZ = 30.0          # camera frame rate we simulate

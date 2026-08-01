@@ -2,8 +2,14 @@
 import argparse
 import sys
 import time
+from pathlib import Path
 
-from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
+# This script lives in scripts/, so the project root is not on sys.path when
+# run as `python3 scripts/mavlink_test.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from mavlink.connection import (  # noqa: E402
+    DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink)
 
 
 def run(args):

@@ -24,8 +24,8 @@ cd /tmp/sitl_run && ~/ardupilot/build/sitl/bin/arducopter --model quad \
     --defaults ~/ardupilot/Tools/autotest/default_params/copter.parm
 
 # Terminal 2 — pick a harness
-python3 sitl_validate.py
-python3 sitl_tag_sim.py
+python3 sim/sitl_validate.py
+python3 sim/sitl_tag_sim.py
 ```
 
 Both harnesses **refuse to run against a serial device**. They arm and fly, so they check
@@ -81,9 +81,9 @@ SITL is synced to the real flight controller's control parameters before each ru
 gains behaves like the real one.
 
 ```bash
-python3 sitl_tag_sim.py                                # default scenario
-python3 sitl_tag_sim.py --tag-range 6 --tag-skew -35   # harder start
-python3 sitl_tag_sim.py --kd-roll 2.5                  # sweep one gain
+python3 sim/sitl_tag_sim.py                                # default scenario
+python3 sim/sitl_tag_sim.py --tag-range 6 --tag-skew -35   # harder start
+python3 sim/sitl_tag_sim.py --kd-roll 2.5                  # sweep one gain
 ```
 
 It prints a convergence report: mean and peak error per axis over the last 40% of the run,
@@ -114,15 +114,15 @@ Every one of these would have crashed the real drone.
 
 Each isolates one subsystem so a failure has one obvious cause.
 
-| Script                          | Tests                                                                 |
-| ------------------------------- | --------------------------------------------------------------------- |
-| `vision_test.py`                | Camera, detection, pose, velocity. **No MAVLink code path at all.** Optional CSV logging |
-| `mavlink_test.py`               | Serial link, heartbeat, armed state, mode, link health. **No camera code path** |
-| `camera_tune.py`                | Exposure sweep with detection rate and pose jitter; `--live --log` records during a real flight |
-| `guided_echo_test.py`           | Streams a gentle 3° roll oscillation and compares the flight controller's echo against what was sent |
-| `motor_test_on_tag.py`          | Bench, props off: one motor spin on tag acquisition — how Pi → FC command authority was first proven |
-| `vision_to_motor_indicator.py`  | Bench, props off: tag far/left/right/close mapped to individual motor spins |
-| `hover_on_tag.py --dry-run`     | Full controller with no flight-controller connection — computes and displays commands only |
+| Script                                   | Tests                                                        |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `scripts/vision_test.py`                 | Camera, detection, pose, velocity. **No MAVLink code path at all.** Optional CSV logging |
+| `scripts/mavlink_test.py`                | Serial link, heartbeat, armed state, mode, link health. **No camera code path** |
+| `scripts/camera_tune.py`                 | Exposure sweep with detection rate and pose jitter; `--live --log` records during a real flight |
+| `scripts/guided_echo_test.py`            | Streams a gentle 3° roll oscillation and compares the flight controller's echo against what was sent |
+| `scripts/motor_test_on_tag.py`           | Bench, props off: one motor spin on tag acquisition — how Pi → FC command authority was first proven |
+| `scripts/vision_to_motor_indicator.py`   | Bench, props off: tag far/left/right/close mapped to individual motor spins |
+| `hover_on_tag.py --dry-run`              | Full controller with no flight-controller connection — computes and displays commands only |
 
 ## A MAVLink gotcha worth recording
 
