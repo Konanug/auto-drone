@@ -20,13 +20,15 @@ device — `camera-mount-cad.png`, not `IMG_4932.png`.
 
 ## The explode clip
 
-`cad/airframe-exploded.mp4` is the animated version of the exploded render.
-Keep it small — this is a README, not a download:
+`cad/airframe-assembly.mp4` is the animation: the exploded view draws together
+into the finished airframe and separates again, so it loops cleanly. The one
+committed here is already h264/yuv420p, 8.3 s, 860 KB. Re-encode only if you
+replace it, and keep it small — this is a README, not a download:
 
 ```bash
 ffmpeg -i raw-export.mp4 -an -vcodec libx264 -crf 26 -preset slow \
        -pix_fmt yuv420p -vf "scale=1280:-2" -movflags +faststart \
-       cad/airframe-exploded.mp4
+       cad/airframe-assembly.mp4
 ```
 
 `-pix_fmt yuv420p` is not optional if it is to play in every browser, and
