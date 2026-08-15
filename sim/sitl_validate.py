@@ -4,12 +4,17 @@ import argparse
 import math
 import sys
 import time
+from pathlib import Path
 
 from pymavlink import mavutil
 
+# This script lives in sim/, so the project root is not on sys.path when run
+# as `python3 sim/sitl_validate.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 # Import the REAL controller module so we validate the shipping send path,
 # type_mask and quaternion construction — not a reimplementation of them.
-import hover_on_tag
+import hover_on_tag  # noqa: E402
 
 SEND_HZ = 20.0
 TAKEOFF_ALT_M = 15.0

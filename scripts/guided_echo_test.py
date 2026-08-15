@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 import argparse
 import math
+import sys
 import time
+from pathlib import Path
 
 from pymavlink import mavutil
 
-from mavlink.connection import DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink
+# This script lives in scripts/, so the project root is not on sys.path when
+# run as `python3 scripts/guided_echo_test.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from mavlink.connection import (  # noqa: E402
+    DEFAULT_BAUD, DEFAULT_DEVICE, FlightControllerLink)
 
 SEND_HZ = 20.0
 ROLL_AMPLITUDE_DEG = 3.0   # gentle, and harmless with props off on the ground
