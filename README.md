@@ -174,16 +174,7 @@ clear of the power wiring and the carbon.
 </p>
 <p align="center"><sub>The same assembly closed up. Compare with the photographs at the top: the build follows the model.</sub></p>
 
-<!-- VIDEO: replace this comment and the blockquote below with the GitHub
-     attachment URL on its own line. Drag assets/cad/airframe-assembly.mp4 into
-     any issue or PR comment box on this repo, copy the user-attachments URL it
-     becomes, and cancel the comment. A committed .mp4 written as an image
-     renders a broken link, and <video> is stripped from README markdown -- the
-     attachment URL is the only form that produces a player. See assets/README.md. -->
-
-> **▶ Assembly animation** — an 8-second clip goes here: the exploded view
-> draws together into the finished airframe and separates again, so it loops.
-> Committed copy: [`assets/cad/airframe-assembly.mp4`](assets/cad/airframe-assembly.mp4)
+https://github.com/user-attachments/assets/23a327b6-904f-4b6b-ba47-4bf15ec50fc6
 
 Because the mounts carry a camera whose pose is part of the control loop, their
 geometry is not cosmetic: the camera-to-body transform in
