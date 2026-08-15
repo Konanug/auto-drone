@@ -156,6 +156,40 @@ My work is the vehicle, the perception and control code, and the integration bet
 
 ---
 
+## The airframe, in CAD
+
+The mounts were modelled against measured component dimensions before anything
+was printed. The exploded view is the clearest picture of how the vehicle is
+actually stacked, and of which parts are custom: the Raspberry Pi tray, the
+camera mount on the front standoffs, and the GPS mast that lifts the receiver
+clear of the power wiring and the carbon.
+
+<p align="center">
+  <img src="assets/cad/airframe-exploded.png" width="92%" alt="Exploded CAD view of the quadcopter: four motors and three-blade propellers on a carbon frame, the flight-controller stack on standoffs, the Raspberry Pi and active cooler above it, the camera on a front mount, and the GPS module on a raised mast.">
+</p>
+<p align="center"><sub>Exploded assembly — frame, motors, flight-controller stack, Raspberry Pi and cooler, camera mount, GPS mast, and the battery beneath the frame.</sub></p>
+
+<p align="center">
+  <img src="assets/cad/airframe-assembled.png" width="80%" alt="Assembled CAD view of the same quadcopter from above and to the side, showing the Raspberry Pi with its cooler mounted over the flight-controller stack.">
+</p>
+<p align="center"><sub>The same assembly closed up. Compare with the photographs at the top: the build follows the model.</sub></p>
+
+<!-- VIDEO: replace this comment and the blockquote below with the GitHub
+     attachment URL on its own line. Drag the mp4 into any issue or PR comment
+     box on this repo, copy the user-attachments URL it becomes, and cancel the
+     comment. A committed .mp4 written as an image renders a broken link, and
+     <video> is stripped from README markdown -- the attachment URL is the only
+     form that produces a player. See assets/README.md. -->
+
+> **▶ Explode animation** — a short clip of the assembly separating goes here.
+> Committed copy: [`assets/cad/airframe-exploded.mp4`](assets/cad/airframe-exploded.mp4)
+
+Because the mounts carry a camera whose pose is part of the control loop, their
+geometry is not cosmetic: the camera-to-body transform in
+[`vision/`](vision) assumes the camera sits where these parts put it.
+
+---
+
 ## Status
 
 | Component                                     | Status                                        |
